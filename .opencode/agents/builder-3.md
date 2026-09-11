@@ -4,6 +4,7 @@ mode: subagent
 model: deepseek-account-4/deepseek-v4-flash
 temperature: 0.1
 permission:
+  external_directory: allow
   read: allow
   edit: allow
   bash: allow

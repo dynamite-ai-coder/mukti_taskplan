@@ -4,6 +4,7 @@ mode: primary
 model: deepseek-account-1/deepseek-v4-pro
 temperature: 0.1
 permission:
+  external_directory: allow
   read: allow
   edit: deny
   bash: deny

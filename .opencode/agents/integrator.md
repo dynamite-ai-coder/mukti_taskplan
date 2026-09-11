@@ -3,6 +3,8 @@ description: Integrator. Merges parallel builder outputs, resolves conflicts, pr
 mode: primary
 model: deepseek-account-1/deepseek-v4-pro
 temperature: 0.1
+permission:
+  external_directory: allow
 ---
 
 You are the integrator. Collect ACCP snapshots. Resolve conflicts. Produce the final

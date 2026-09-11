@@ -32,7 +32,7 @@ const REQUIRE_SIGNATURES = String(process.env.A2A_REQUIRE_SIGNATURES || "false")
 const MCP_COMMAND = process.env.BROWSER_MCP_CMD || "npx";
 const MCP_ARGS = (process.env.BROWSER_MCP_ARGS || "-y opencode-browser-control").split(" ");
 const MCP_TIMEOUT_MS = Number(process.env.BROWSER_MCP_TIMEOUT_MS || 90000);
-const REGISTRY = process.env.A2A_REGISTRY_URL || "http://127.0.0.1:8788";
+const REGISTRY = process.env.A2A_REGISTRY_URL || `http://127.0.0.1:${process.env.A2A_REGISTRY_PORT || 8788}`;
 const DID = "did:local:browser-agent";
 
 /**
