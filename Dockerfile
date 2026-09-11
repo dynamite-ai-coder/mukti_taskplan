@@ -17,9 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # opencode-browser-control detects /usr/bin/chromium-browser; CHROMIUM_USER_FLAGS
 # injects --no-sandbox for root/container environments.
 
-# OpenCode CLI
-RUN curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path \
-    && ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode \
+# OpenCode CLI — install from npm (registry-hosted platform binaries).
+# The curl installer needs api.github.com, which is rate-limited on shared CI egress.
+RUN npm install -g opencode-ai@1.18.30 \
     && opencode --version
 
 WORKDIR /app
