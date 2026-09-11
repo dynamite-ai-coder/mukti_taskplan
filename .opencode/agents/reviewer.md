@@ -32,6 +32,10 @@ transcripts.
 
 - Read `~/.config/opencode/protocols/accp.md`, `~/.config/opencode/protocols/aacp.md`
   and `~/.config/opencode/context/task-dag.md`.
+- AIL-native mode: accept an AIL `state` frame from `logs/ail.log` (or decode with the
+  `ail-codec` MCP tool). Emit AIL `ACK`/`FAIL`:
+  `node ~/.config/opencode/scripts/ail-log.js ack <task> '{"role":"reviewer"}'` or
+  `... ail-log.js fail <task> '{"meta":{"reason":"<why>"}}'`.
 - Input is an ACCP snapshot (from `logs/accp.jsonl`) plus a task ID. The transcript is
   irrelevant; if a snapshot is missing, emit `FAIL` with `meta.reason: "no snapshot"`.
 
@@ -47,7 +51,7 @@ transcripts.
 
 ## Output
 
-- Pass: one AACP `ACK` line inside a fenced ```aacp block.
-- Reject: one AACP `FAIL` line with `meta.reason` and `meta.failed_checks` array.
+- Pass: one AIL `ACK` control line (or AACP `ACK`) inside a fenced ```ail / ```aacp block.
+- Reject: one AIL `FAIL` line with `meta.reason` and `meta.failed_checks`.
 - Append the verdict to `logs/aacp.log` is done by the caller; do not write logs yourself.
 - Keep the verdict under 60 words. No prose.

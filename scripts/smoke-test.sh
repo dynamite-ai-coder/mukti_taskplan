@@ -55,6 +55,30 @@ process.stdout.write(packet.op==="DISPATCH"&&packet.task==="t1"&&packet.meta.has
 ' "$ROOT/global/protocols/aacp-encoder.js")"
 [ "$ROUNDTRIP" = "ok" ] && pass "AACP encode/decode round trip" || bad "AACP encoder round trip"
 
+# --- 4b. AIL round trip + benchmark ---
+AIL_CHECK="$(node -e '
+const A=require(process.argv[1]);
+const frame={type:"control",op:"DISPATCH",task:"t1",role:"builder",dom:"code",ref:["src/app.js"],ret:["files"]};
+const enc=A.encode(frame,A.createDict());
+const dec=A.decode(enc.lines,A.createDict()).pop();
+const aacp=JSON.stringify({v:1,op:"DISPATCH",task:"t1",role:"builder",dom:"code",ref:["src/app.js"],ret:["files"]});
+const b=A.bench(aacp,frame,A.createDict());
+process.stdout.write(dec.op==="DISPATCH"&&dec.ref[0]==="src/app.js"&&b.savings_pct>40?"ok":"bad:"+JSON.stringify(b));
+' "$ROOT/global/protocols/ail-codec.js" 2>/dev/null || echo error)"
+[ "$AIL_CHECK" = "ok" ] && pass "AIL round trip + bench (>40% vs AACP)" || bad "AIL round trip + bench ($AIL_CHECK)"
+
+# --- 4c. AIL side-channel writer ---
+AIL_LOGS="$(mktemp -d)"
+AACP_LOG_DIR="$AIL_LOGS" node "$ROOT/global/scripts/ail-log.js" dispatch t1 \
+  '{"role":"builder","dom":"code","ref":["src/app.js"]}' >/dev/null 2>&1
+AACP_LOG_DIR="$AIL_LOGS" node "$ROOT/global/scripts/ail-log.js" state \
+  '{"run_id":"smoke","cursor":"t1","facts":{"tests_passing":true},"delta":["+app.js"]}' >/dev/null 2>&1
+if [ -s "$AIL_LOGS/ail.log" ] && [ -s "$AIL_LOGS/ail-dict.jsonl" ]; then
+  pass "ail-log writes logs/ail.log + logs/ail-dict.jsonl"
+else
+  bad "ail-log side channel"
+fi
+
 # --- 5. MCP handshake (aacp-codec) ---
 MCP_OUT="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | timeout 10 node "$ROOT/global/scripts/aacp-codec-mcp.js" 2>/dev/null || true)"
 if printf '%s' "$MCP_OUT" | grep -q '"aacp_encode"'; then
@@ -69,6 +93,14 @@ if printf '%s' "$MCP_OUT2" | grep -q '"a2a_discover"'; then
   pass "a2a-registry MCP handshake + tools/list"
 else
   bad "a2a-registry MCP handshake"
+fi
+
+# --- 6b. MCP handshake (ail-codec) ---
+MCP_OUT3="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | timeout 10 node "$ROOT/global/scripts/ail-codec-mcp.js" 2>/dev/null || true)"
+if printf '%s' "$MCP_OUT3" | grep -q '"ail_encode"'; then
+  pass "ail-codec MCP handshake + tools/list"
+else
+  bad "ail-codec MCP handshake"
 fi
 
 # --- 7. Key rotator 429 failover ---

@@ -21,13 +21,17 @@ const state = {
   packets: 0,
   snapshots: 0,
   a2a: 0,
-  bytes: { aacp: 0, accp: 0, a2a: 0 },
+  ail: 0,
+  dictDefs: 0,
+  bytes: { aacp: 0, accp: 0, a2a: 0, ail: 0 },
   ops: {},
   roles: {},
   methods: {},
+  ailTypes: {},
   tasks: new Map(),
   recent: [],
 };
+const AIL_LINE = /^[>$~@#][a-z0-9]{6}\|/;
 
 function touchTask(task) {
   if (!task) return null;
@@ -36,13 +40,28 @@ function touchTask(task) {
 }
 
 function ingest(line) {
+  const size = Buffer.byteLength(line);
+  if (AIL_LINE.test(line)) {
+    state.ail += 1;
+    state.bytes.ail += size;
+    const sigil = line[0];
+    const type = { ">": "control", $: "state", "~": "reason", "@": "directive", "#": "dict" }[sigil] || sigil;
+    state.ailTypes[type] = (state.ailTypes[type] || 0) + 1;
+    if (type === "dict") state.dictDefs += 1;
+    if (type === "control") {
+      const op = line.split("|")[1];
+      state.ops[`AIL_${op}`] = (state.ops[`AIL_${op}`] || 0) + 1;
+    }
+    state.recent.push(`AIL ${type} ${line.slice(0, 48)}`);
+    state.recent = state.recent.slice(-8);
+    return;
+  }
   let obj;
   try {
     obj = JSON.parse(line);
   } catch {
     return;
   }
-  const size = Buffer.byteLength(line);
   if (obj.v === 1 && obj.op && obj.task) {
     state.packets += 1;
     state.bytes.aacp += size;
@@ -74,10 +93,11 @@ const tokens = (bytes) => Math.ceil(bytes / 4);
 
 function render() {
   const lines = [];
-  lines.push(`AACP/ACCP/A2A dashboard  dir=${LOG_DIR}  ${new Date().toISOString()}`);
+  lines.push(`AACP/ACCP/A2A/AIL dashboard  dir=${LOG_DIR}  ${new Date().toISOString()}`);
   lines.push("".padEnd(72, "-"));
-  lines.push(`packets=${state.packets}  snapshots=${state.snapshots}  a2a_calls=${state.a2a}  coord_tokens_est=${tokens(state.bytes.aacp + state.bytes.accp + state.bytes.a2a)}`);
+  lines.push(`packets=${state.packets}  snapshots=${state.snapshots}  a2a_calls=${state.a2a}  ail=${state.ail}  coord_tokens_est=${tokens(state.bytes.aacp + state.bytes.accp + state.bytes.a2a + state.bytes.ail)}`);
   lines.push(`ops: ${Object.entries(state.ops).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}`);
+  lines.push(`ail: ${Object.entries(state.ailTypes).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}  dict_defs=${state.dictDefs}`);
   lines.push(`roles: ${Object.entries(state.roles).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}`);
   lines.push(`a2a: ${Object.entries(state.methods).map(([k, v]) => `${k}=${v}`).join(" ") || "-"}`);
   lines.push("".padEnd(72, "-"));
@@ -103,7 +123,7 @@ async function readStdin() {
 }
 
 function followFiles() {
-  const files = ["aacp.log", "accp.jsonl", "a2a.log"];
+  const files = ["aacp.log", "accp.jsonl", "a2a.log", "ail.log", "ail-dict.jsonl"];
   const offsets = new Map();
   const readNew = () => {
     for (const file of files) {

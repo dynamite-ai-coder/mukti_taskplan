@@ -15,6 +15,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const OPS = new Set(["DISPATCH", "RESULT", "QUERY", "ACK", "FAIL"]);
+const AIL_LINE = /^[>$~@#][a-z0-9]{6}\|/;
 const ROLE_MAP = {
   planner: "planner",
   "builder-1": "builder",
@@ -44,16 +45,23 @@ export const ProtocolLogger = async ({ worktree, directory }) => {
   const logDir = process.env.AACP_LOG_DIR ? path.resolve(process.env.AACP_LOG_DIR) : path.join(root, "logs");
   const seen = new Set();
 
-  const append = (file, obj) => {
+  const appendRaw = (file, line) => {
     try {
-      const line = JSON.stringify(obj);
       if (seen.has(line)) return;
       if (seen.size > 5000) seen.clear();
       seen.add(line);
       fs.mkdirSync(logDir, { recursive: true });
-      fs.appendFileSync(path.join(logDir, file), line + "\n", "utf8");
+      fs.appendFileSync(path.join(logDir, file), line.replace(/\n+$/, "") + "\n", "utf8");
     } catch {
       /* logging must never break a session */
+    }
+  };
+
+  const append = (file, obj) => {
+    try {
+      appendRaw(file, JSON.stringify(obj));
+    } catch {
+      /* ignore circular */
     }
   };
 
@@ -61,6 +69,11 @@ export const ProtocolLogger = async ({ worktree, directory }) => {
     if (typeof text !== "string" || text.length > 1_000_000) return;
     for (const raw of text.split("\n")) {
       const line = raw.trim().replace(/^```[a-z]*$/i, "").replace(/^`+|`+$/g, "").trim();
+      if (!line) continue;
+      if (AIL_LINE.test(line)) {
+        appendRaw(line[0] === "#" ? "ail-dict.jsonl" : "ail.log", line);
+        continue;
+      }
       if (!line.startsWith("{")) continue;
       let obj;
       try {

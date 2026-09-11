@@ -20,6 +20,12 @@
       "command": ["node", "{env:HOME}/.config/opencode/scripts/aacp-codec-mcp.js"],
       "enabled": true,
       "timeout": 15000
+    },
+    "ail-codec": {
+      "type": "local",
+      "command": ["node", "{env:HOME}/.config/opencode/scripts/ail-codec-mcp.js"],
+      "enabled": true,
+      "timeout": 15000
     }
   },
   "agent": {

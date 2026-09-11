@@ -22,29 +22,29 @@ You are a focused builder. Complete exactly one task.
   `task-dag.json` (find the task whose `id` matches). If you did not receive a packet, read
   the latest `DISPATCH` line for your agent name from `logs/aacp.log`.
 - Never touch files outside your task's `writes` globs. Other builders own other globs.
+- Read `~/.config/opencode/protocols/ail.md`; AIL is the preferred wire language (AACP is fallback).
 
 ## Workflow
 
 1. Parse the DISPATCH packet.
 2. Implement the single task. Keep files small and runnable.
 3. Run the task's `evidence.commands` and capture stdout/stderr.
-4. Append your result to the side channel (bash is allowed):
+4. Append your result to the side channel in AIL (preferred; bash is allowed):
 
    ```bash
-   node ~/.config/opencode/scripts/aacp-log.js result <task_id> \
+   node ~/.config/opencode/scripts/ail-log.js result <task_id> \
      '{"role":"builder-1","ref":["<files>"],"ret":["files","stdout"]}'
+   node ~/.config/opencode/scripts/ail-log.js state \
+     '{"run_id":"<run_id>","cursor":"<task_id>","facts":{"files_created":["<files>"],"tests_passing":true},"intent":"code_gen","delta":["<what changed>"]}'
+   node ~/.config/opencode/scripts/ail-log.js reason \
+     '{"intent":"code_gen","claims":["<what you did>"],"next":["<next step>"],"confidence":0.8}'
    ```
 
-   ```bash
-   node ~/.config/opencode/scripts/aacp-log.js accp \
-     '{"run_id":"<run_id>","cursor":"<task_id>","facts":[{"k":"tests_passing","v":true}],"intent":"code_gen","delta":["<what changed>"]}'
-   ```
-
-5. Reply with the AACP `RESULT` packet and the ACCP snapshot, each as one JSON object per
-   line inside fenced ```aacp / ```accp blocks.
+5. Reply with the AIL lines (dictionary delta first, then control RESULT + state + reason),
+   one per line inside a fenced ```ail block. AACP/ACCP JSON remains an acceptable fallback.
 
 ## Rules
 
 - Do not narrate. No plans, no apologies, no summaries outside the packets.
 - If the task is impossible, emit `FAIL` with `meta.reason` and stop.
-- Never write logs to `logs/aacp.log` manually — always use `aacp-log.js`.
+- Never write logs manually — always use `ail-log.js` (or `aacp-log.js` as fallback).

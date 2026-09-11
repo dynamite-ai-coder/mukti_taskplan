@@ -3,6 +3,8 @@
   "instructions": ["AGENTS.md"],
   "default_agent": "planner",
   "small_model": "deepseek-account-1/deepseek-v4-flash",
+  "autoupdate": false,
+  "share": "disabled",
   "provider": {
     "deepseek-account-1": {
       "npm": "@ai-sdk/openai-compatible",
@@ -86,6 +88,12 @@
     "aacp-codec": {
       "type": "local",
       "command": ["node", "./global/scripts/aacp-codec-mcp.js"],
+      "enabled": true,
+      "timeout": 15000
+    },
+    "ail-codec": {
+      "type": "local",
+      "command": ["node", "./global/scripts/ail-codec-mcp.js"],
       "enabled": true,
       "timeout": 15000
     }

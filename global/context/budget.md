@@ -20,6 +20,23 @@ Measurement is side-channel based: `logs/aacp.log` (packets), `logs/accp.jsonl`
 | 4-hop flow total | <= 1500 |
 | Expected savings | 30-45% on multi-hop flows |
 
+## Target — with AIL (AI-native Interlingua, preferred)
+
+AIL replaces human-readable JSON with positional frames + a symbol dictionary
+(`protocols/ail.md`). One dictionary delta is sent per receiving agent per run; after that
+only frames travel.
+
+| Hop | AACP target | AIL target |
+| --- | --- | --- |
+| Planner -> Builder handoff | <= 250 | <= 150 |
+| Builder -> Reviewer handoff | <= 400 | <= 225 |
+| 4-hop flow total | <= 1500 | <= 900 |
+| Expected savings vs baseline | 30-45% | 60-80% |
+| Expected savings vs AACP | - | 40-60% |
+
+Measured example: a planner -> builder control frame costs 28 tokens (41 with the one-time
+dictionary delta) vs 95 tokens for the same AACP JSON packet.
+
 ## How to measure
 
 ```bash

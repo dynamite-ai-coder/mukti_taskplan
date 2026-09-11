@@ -276,6 +276,11 @@ const server = http.createServer(async (req, res) => {
   send(res, 404, { error: "not found" });
 });
 
+server.on("error", (err) => {
+  process.stderr.write(`a2a-registry server error: ${err.message}\n`);
+  log({ dir: "registry.error", error: err.message });
+});
+
 loadState();
 server.listen(PORT, HOST, () => {
   fs.mkdirSync(LOG_DIR, { recursive: true });

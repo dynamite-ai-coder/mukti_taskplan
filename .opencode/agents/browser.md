@@ -28,6 +28,9 @@ snapshot. Reply to A2A calls only with AACP `RESULT` packets.
   `{"did":"did:local:browser-agent","name":"browser-agent","capabilities":["web_navigate","form_fill","data_extract","screenshot"],"endpoints":{"rpc":"http://localhost:8789/rpc","stream":"http://localhost:8789/stream"},"limits":{"max_rps":5,"timeout_ms":60000},"trust":0.95}`
 - The A2A front for your MCP tools is `scripts/browser-a2a-server.js` (port 8789). If it is
   not running, report `FAIL` with `meta.reason: "a2a server offline"` instead of guessing.
+- Read `~/.config/opencode/protocols/ail.md`; reply to A2A calls with AIL control frames
+  (AACP is fallback). Log them with
+  `node ~/.config/opencode/scripts/ail-log.js result <task> '{"role":"browser","dom":"web","ref":["<url>"],"ret":["snapshot"]}'`.
 
 ## Workflow
 
@@ -38,7 +41,8 @@ snapshot. Reply to A2A calls only with AACP `RESULT` packets.
 4. Extract the requested data as text (V4-Flash is text-only: never rely on screenshots
    for reasoning; screenshots are artifacts only).
 5. Write artifacts only under `artifacts/browser/**`.
-6. Reply with an AACP `RESULT` packet: `ref` = URLs + artifact paths, `ret` = `["snapshot"]`.
+6. Reply with an AIL control `RESULT` frame (preferred) or an AACP `RESULT` packet:
+   `ref` = URLs + artifact paths, `ret` = `["snapshot"]`.
 
 ## Rules
 

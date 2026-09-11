@@ -21,7 +21,8 @@ const inputs = args.filter((a, i) => !a.startsWith("--") && i !== dirIndex + 1);
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
 const seen = new Set();
-const counters = { aacp: 0, accp: 0, a2a: 0, skipped: 0 };
+const counters = { aacp: 0, accp: 0, a2a: 0, ail: 0, skipped: 0 };
+const AIL_LINE = /^[>$~@#][a-z0-9]{6}\|/;
 
 function classify(obj) {
   if (!obj || typeof obj !== "object" || obj.v !== 1) return null;
@@ -46,6 +47,17 @@ function append(kind, obj) {
 function ingest(line) {
   const trimmed = line.trim().replace(/^```[a-z]*$/i, "").replace(/^`+|`+$/g, "").trim();
   if (!trimmed || trimmed.startsWith("```")) return;
+  if (AIL_LINE.test(trimmed)) {
+    if (seen.has(trimmed)) {
+      counters.skipped += 1;
+      return;
+    }
+    seen.add(trimmed);
+    const file = trimmed[0] === "#" ? "ail-dict.jsonl" : "ail.log";
+    fs.appendFileSync(path.join(LOG_DIR, file), trimmed + "\n", "utf8");
+    counters.ail += 1;
+    return;
+  }
   if (trimmed[0] !== "{" && trimmed[0] !== "[") return;
   let parsed;
   try {
@@ -72,7 +84,7 @@ async function main() {
     for await (const line of rl) ingest(line);
   }
   process.stderr.write(
-    `extract-packets: aacp=${counters.aacp} accp=${counters.accp} a2a=${counters.a2a} dup=${counters.skipped} -> ${LOG_DIR}\n`
+    `extract-packets: aacp=${counters.aacp} accp=${counters.accp} a2a=${counters.a2a} ail=${counters.ail} dup=${counters.skipped} -> ${LOG_DIR}\n`
   );
 }
 

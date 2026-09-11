@@ -20,8 +20,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
-const { sign, signed, verify } = require("./crypto-sign.js");
-const { encode } = require("../protocols/aacp-encoder.js");
+const { signed, verify } = require("./crypto-sign.js");
+const A = require("../protocols/ail-codec.js");
+const AIL_LINE = /^[>$~@#][a-z0-9]{6}\|/;
 
 const PORT = Number(process.env.BROWSER_A2A_PORT || 8789);
 const HOST = process.env.A2A_HOST || "127.0.0.1";
@@ -78,6 +79,47 @@ function agentCard() {
     limits: { max_rps: 5, timeout_ms: 60000 },
     trust: 0.95,
   });
+}
+
+function dictPath() {
+  return process.env.AIL_DICT_FILE || path.join(LOG_DIR, "ail-dict.jsonl");
+}
+
+/** Emit an AIL control frame (preferred) and return it plus the AACP-compatible packet. */
+function emitAil(op, job, payload = {}) {
+  const dict = A.loadDictFile(dictPath());
+  const encoded = A.encode(
+    { type: "control", op, task: job.task, role: "browser", dom: "web", ...payload },
+    dict,
+    { sign: process.env.A2A_REQUIRE_SIGNATURES === "true", secret: process.env.A2A_SECRET }
+  );
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  for (const line of encoded.lines) {
+    const file = line.startsWith("#") ? "ail-dict.jsonl" : "ail.log";
+    fs.appendFileSync(path.join(LOG_DIR, file), line + "\n", "utf8");
+  }
+  const decoded = A.decode(encoded.lines, A.createDict());
+  const frame = Array.isArray(decoded) ? decoded[decoded.length - 1] : decoded;
+  return { lines: encoded.lines, tokens: encoded.tokens, dict: encoded.dict, packet: A.toAacp(frame) };
+}
+
+/** Accept either an AACP packet object or an AIL line/string and return a task descriptor. */
+function normalizeIncoming(raw) {
+  if (typeof raw === "string" && AIL_LINE.test(raw.trim())) {
+    const dict = A.loadDictFile(dictPath());
+    const decoded = A.decode(raw, dict);
+    const frames = Array.isArray(decoded) ? decoded : [decoded];
+    const control = frames.find((f) => f.type === "control") || {};
+    return Object.assign({}, control, { task: control.task || "task", meta: control.meta || {} });
+  }
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return raw;
 }
 
 function broadcast(event, data) {
@@ -260,26 +302,19 @@ async function runJob(job, params) {
         snapshotFiles.push(file);
       }
     }
-    const packet = JSON.parse(
-      encode(job.task, "RESULT", {
-        role: "browser",
-        dom: "web",
-        ref: snapshotFiles.length ? snapshotFiles : [`http://${HOST}:${PORT}/rpc`],
-        ret: ["snapshot"],
-        meta: { run: job.run, job: job.id, steps: evidence.length },
-      })
-    );
+    const ail = emitAil("RESULT", job, {
+      ref: snapshotFiles.length ? snapshotFiles : [`http://${HOST}:${PORT}/rpc`],
+      ret: ["snapshot"],
+      meta: { run: job.run, job: job.id, steps: evidence.length },
+    });
     job.status = "completed";
-    job.result = signed({ packet, steps: evidence, job_id: job.id });
-    const line = JSON.stringify(packet);
+    job.result = signed({ ail, packet: ail.packet, steps: evidence, job_id: job.id });
     fs.mkdirSync(LOG_DIR, { recursive: true });
-    fs.appendFileSync(path.join(LOG_DIR, "aacp.log"), line + "\n", "utf8");
+    fs.appendFileSync(path.join(LOG_DIR, "aacp.log"), JSON.stringify(ail.packet) + "\n", "utf8");
   } catch (err) {
     job.status = job.cancelled ? "cancelled" : "failed";
-    job.result = signed({
-      packet: JSON.parse(encode(job.task, "FAIL", { role: "browser", dom: "web", meta: { reason: err.message, job: job.id } })),
-      error: err.message,
-    });
+    const ail = emitAil("FAIL", job, { meta: { reason: err.message, job: job.id, run: job.run } });
+    job.result = signed({ ail, packet: ail.packet, error: err.message });
   }
   job.finished = Date.now();
   log({ dir: "task.result", id: job.id, status: job.status, task: job.task });
@@ -293,13 +328,25 @@ async function rpc(method, params = {}) {
     case "did.info":
       return agentCard();
     case "task.dispatch": {
-      const packet = params.packet;
-      if (!packet) throw new Error("packet is required");
-      if (REQUIRE_SIGNATURES && !verify(packet, packet.sig)) throw new Error("packet signature missing or invalid");
-      const id = `${packet.task || "task"}-${crypto.randomBytes(4).toString("hex")}`;
+      const raw = params.packet !== undefined ? params.packet : params.frames;
+      if (!raw) throw new Error("packet or frames is required");
+      let packet;
+      if (typeof raw === "string" && AIL_LINE.test(raw.trim())) {
+        const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+        const frameLine = lines.find((l) => !l.startsWith("#")) || lines[0];
+        if (REQUIRE_SIGNATURES && !A.verifyLine(frameLine, process.env.A2A_SECRET)) {
+          throw new Error("AIL frame signature missing or invalid");
+        }
+        packet = normalizeIncoming(lines.join("\n"));
+      } else {
+        if (REQUIRE_SIGNATURES && !verify(raw, raw.sig)) throw new Error("packet signature missing or invalid");
+        packet = normalizeIncoming(raw);
+      }
+      if (!packet || !packet.task) throw new Error("cannot determine task from packet");
+      const id = `${packet.task}-${crypto.randomBytes(4).toString("hex")}`;
       const job = {
         id,
-        task: packet.task || "task",
+        task: packet.task,
         run: (packet.meta && packet.meta.run) || null,
         status: "accepted",
         started: Date.now(),
@@ -308,7 +355,7 @@ async function rpc(method, params = {}) {
       jobs.set(id, job);
       log({ dir: "task.dispatch", id, task: job.task, from: params.from });
       broadcast("job.updated", { id, status: "accepted", task: job.task });
-      runJob(job, params);
+      runJob(job, Object.assign({}, params, { packet }));
       return { job_id: id, status: job.status };
     }
     case "task.status": {
@@ -405,6 +452,11 @@ const server = http.createServer(async (req, res) => {
     }
   }
   send(res, 404, { error: "not found" });
+});
+
+server.on("error", (err) => {
+  process.stderr.write(`browser-a2a-server error: ${err.message}\n`);
+  log({ dir: "browser.error", error: err.message });
 });
 
 async function registerCard() {

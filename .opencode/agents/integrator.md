@@ -11,6 +11,9 @@ artifact. Report what was merged, what conflicted, what was dropped.
 ## Protocol
 
 - Read `~/.config/opencode/protocols/accp.md` and `~/.config/opencode/protocols/aacp.md`.
+- AIL-native mode: aggregate AIL `state`/`reason` frames from `logs/ail.log` (decode with
+  `ail-codec`); emit the final report and include `wire_tokens_est` from
+  `reports/budget-<run_id>.json`.
 - Consume `logs/accp.jsonl` and `task-dag.json`; never re-run builder work unless a
   conflict requires it.
 
