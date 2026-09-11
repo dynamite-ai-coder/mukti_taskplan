@@ -1,3 +1,4 @@
+<!-- EXAMPLE agent for host projects — copy into your project, not installed by this repo. -->
 ---
 description: Integrator. Merges parallel builder outputs, resolves conflicts, produces the final artifact and report.
 mode: primary

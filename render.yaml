@@ -1,7 +1,8 @@
 # ============================================================
-# Render Blueprint — mukti-taskplan as a web service (Docker)
+# Render Blueprint — mukti-taskplan planner A2A service (Docker)
 # Deploy: Render Dashboard -> New -> Blueprint -> select this repo
-# Then set the 5 DeepSeek keys (sync: false) in the dashboard.
+# Then set A2A_SECRET / SERVICE_API_KEY (generated below).
+# No browser env vars: this is the planner-only service.
 # ============================================================
 services:
   - type: web
@@ -20,34 +21,14 @@ services:
         value: /data/logs
       - key: REPORTS_DIR
         value: /data/reports
-      - key: WORKSPACE_DIR
-        value: /data/workspace
       - key: OPENCODE_GLOBAL_DIR
         value: /root/.config/opencode
-      - key: BROWSER_NO_SANDBOX
-        value: "true"
-      - key: CHROMIUM_USER_FLAGS
-        value: --no-sandbox --disable-dev-shm-usage --disable-gpu
       - key: A2A_REQUIRE_SIGNATURES
         value: "true"
-      - key: MAX_CONCURRENT_JOBS
-        value: "1"
-      - key: JOB_TIMEOUT_MS
-        value: "600000"
       - key: A2A_SECRET
         generateValue: true
       - key: SERVICE_API_KEY
         generateValue: true
-      - key: DEEPSEEK_KEY_1
-        sync: false
-      - key: DEEPSEEK_KEY_2
-        sync: false
-      - key: DEEPSEEK_KEY_3
-        sync: false
-      - key: DEEPSEEK_KEY_4
-        sync: false
-      - key: DEEPSEEK_KEY_5
-        sync: false
     disk:
       name: mukti-data
       mountPath: /data

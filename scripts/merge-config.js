@@ -3,10 +3,11 @@
  * Deep-merge a source opencode.json into a target opencode.json.
  * Objects merge recursively, arrays are replaced, `$schema` is preserved.
  *
- *   node merge-config.js <source> <target> [--keys provider,mcp,small_model] [--rewrite-home]
+ *   node merge-config.js <source> <target> [--keys provider,mcp] [--drop a.b,c] [--rewrite-home]
  *
- * Used by scripts/install-global.sh to install the multi-agent providers and
- * MCP servers without destroying existing user configuration.
+ * Used by scripts/install-global.sh to install the planner providers and MCP
+ * servers without destroying existing user configuration. `--drop` removes
+ * dotted paths from the incoming block (e.g. swarm-only MCP servers).
  */
 "use strict";
 
@@ -15,13 +16,18 @@ const path = require("node:path");
 
 const args = process.argv.slice(2);
 const keysIndex = args.indexOf("--keys");
-const onlyKeys = keysIndex >= 0 ? args[keysIndex + 1].split(",").map((s) => s.trim()) : null;
+const onlyKeys = keysIndex >= 0 ? args[keysIndex + 1].split(",").map((s) => s.trim()).filter(Boolean) : null;
+const dropIndex = args.indexOf("--drop");
+const dropPaths = dropIndex >= 0 ? args[dropIndex + 1].split(",").map((s) => s.trim()).filter(Boolean) : [];
 const rewriteHome = args.includes("--rewrite-home");
-const positional = args.filter((a, i) => !a.startsWith("--") && i !== keysIndex + 1);
+const valueIndexes = new Set();
+if (keysIndex >= 0) valueIndexes.add(keysIndex + 1);
+if (dropIndex >= 0) valueIndexes.add(dropIndex + 1);
+const positional = args.filter((a, i) => !a.startsWith("--") && !valueIndexes.has(i));
 const [sourceFile, targetFile] = positional;
 
 if (!sourceFile || !targetFile) {
-  process.stderr.write("usage: merge-config.js <source.json> <target.json> [--keys a,b,c] [--rewrite-home]\n");
+  process.stderr.write("usage: merge-config.js <source.json> <target.json> [--keys a,b,c] [--drop a.b] [--rewrite-home]\n");
   process.exit(1);
 }
 
@@ -48,6 +54,17 @@ function merge(target, source) {
   return out;
 }
 
+function dropPath(root, dotted) {
+  const parts = dotted.split(".").filter(Boolean);
+  if (!parts.length) return;
+  let cursor = root;
+  for (const part of parts.slice(0, -1)) {
+    if (!isPlainObject(cursor)) return;
+    cursor = cursor[part];
+  }
+  if (isPlainObject(cursor)) delete cursor[parts[parts.length - 1]];
+}
+
 function rewrite(value) {
   const text = JSON.stringify(value)
     .replaceAll("./global/scripts/", "{env:HOME}/.config/opencode/scripts/")
@@ -63,6 +80,7 @@ if (onlyKeys) {
   incoming = {};
   for (const key of onlyKeys) if (source[key] !== undefined) incoming[key] = source[key];
 }
+for (const dotted of dropPaths) dropPath(incoming, dotted);
 if (rewriteHome) incoming = rewrite(incoming);
 
 const merged = merge(target, incoming);

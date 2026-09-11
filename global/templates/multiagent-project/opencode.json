@@ -4,12 +4,6 @@
   "default_agent": "planner",
   "instructions": ["AGENTS.md"],
   "mcp": {
-    "browser-control": {
-      "type": "local",
-      "command": ["npx", "-y", "opencode-browser-control"],
-      "enabled": true,
-      "timeout": 15000
-    },
     "a2a-registry": {
       "type": "local",
       "command": ["node", "{env:HOME}/.config/opencode/scripts/a2a-registry-mcp.js"],
@@ -27,36 +21,6 @@
       "command": ["node", "{env:HOME}/.config/opencode/scripts/ail-codec-mcp.js"],
       "enabled": true,
       "timeout": 15000
-    }
-  },
-  "agent": {
-    "planner": {
-      "model": "deepseek-account-1/deepseek-v4-pro",
-      "temperature": 0.1
-    },
-    "builder-1": {
-      "model": "deepseek-account-2/deepseek-v4-flash",
-      "temperature": 0.1
-    },
-    "builder-2": {
-      "model": "deepseek-account-3/deepseek-v4-flash",
-      "temperature": 0.1
-    },
-    "builder-3": {
-      "model": "deepseek-account-4/deepseek-v4-flash",
-      "temperature": 0.1
-    },
-    "browser": {
-      "model": "deepseek-account-5/deepseek-v4-flash",
-      "temperature": 0.1
-    },
-    "reviewer": {
-      "model": "deepseek-account-1/deepseek-v4-pro",
-      "temperature": 0
-    },
-    "integrator": {
-      "model": "deepseek-account-1/deepseek-v4-pro",
-      "temperature": 0.1
     }
   }
 }

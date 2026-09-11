@@ -1,3 +1,4 @@
+<!-- EXAMPLE agent for host projects — copy into your project, not installed by this repo. -->
 ---
 description: Focused builder that executes exactly one atomic DAG task and reports AACP RESULT + ACCP snapshot.
 mode: subagent

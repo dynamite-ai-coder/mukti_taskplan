@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # ============================================================
-# install-global.sh — install the multi-agent system globally
+# install-global.sh — install the planner core globally
 #   bash scripts/install-global.sh [--dry-run] [--project DIR]
 #
 # Installs into ~/.config/opencode (override: OPENCODE_GLOBAL_DIR):
-#   - opencode.json   providers + MCP servers (merged, not replaced)
-#   - agents/         planner, builder-1..3, browser, reviewer, integrator
-#   - protocols/      aacp.md, accp.md, a2a.md, aacp-encoder.js
+#   - opencode.json   providers + planner MCPs (merged, never replaced)
+#   - agents/         planner.md ONLY (host projects register their own agents)
+#   - protocols/      aacp, accp, ail, a2a docs + encoders
 #   - context/        task-dag.md, budget.md
-#   - scripts/        key-rotator, a2a-registry, browser-a2a-server, dashboard, summary, ...
+#   - scripts/        registry + codecs + crypto-sign + MCP wrappers + aacp/ail logs
 #   - plugins/        protocol-logger.js
 #   - tools/          get-key.ts
-#   - templates/      multiagent-project (drop-in project template)
+#   - templates/      multiagent-project (host-project template)
+#
+# It is intentionally tolerant: missing builder/browser/reviewer/integrator files
+# are skipped, never fatal.
 # ============================================================
 set -euo pipefail
 
@@ -49,10 +52,24 @@ copy_tree() {
   fi
 }
 
+copy_file() {
+  local src="$1" dst="$2"
+  if [ ! -f "$src" ]; then
+    echo "install-global: (skip) missing $src"
+    return 0
+  fi
+  run mkdir -p "$(dirname "$dst")"
+  if [ -n "$DRY_RUN" ]; then
+    echo "[dry-run] cp $src $dst"
+  else
+    cp "$src" "$dst"
+  fi
+}
+
 echo "install-global: repo=$ROOT"
 echo "install-global: global_dir=$GLOBAL_DIR"
 
-# --- 1. config merge (never destroy existing keys) ---
+# --- 1. config merge (never destroy existing keys; drop swarm-only MCPs) ---
 if [ -f "$GLOBAL_DIR/opencode.json" ] && [ -z "$DRY_RUN" ]; then
   backup="$GLOBAL_DIR/opencode.json.bak.$(date +%Y%m%d%H%M%S)"
   cp "$GLOBAL_DIR/opencode.json" "$backup"
@@ -60,39 +77,55 @@ if [ -f "$GLOBAL_DIR/opencode.json" ] && [ -z "$DRY_RUN" ]; then
 fi
 run mkdir -p "$GLOBAL_DIR"
 run node "$ROOT/scripts/merge-config.js" "$ROOT/opencode.json" "$GLOBAL_DIR/opencode.json" \
-  --keys small_model,provider,mcp,autoupdate,share --rewrite-home
+  --keys small_model,provider,mcp,autoupdate,share --drop mcp.browser-control --rewrite-home
 
-# --- 2. global artifacts ---
-copy_tree "$ROOT/.opencode/agents" "$GLOBAL_DIR/agents"
+# --- 2. planner agent (only the planner; hosts register their own agents) ---
+copy_file "$ROOT/.opencode/agents/planner.md" "$GLOBAL_DIR/agents/planner.md"
+
+# --- 3. protocols + context + templates ---
 copy_tree "$ROOT/global/protocols" "$GLOBAL_DIR/protocols"
 copy_tree "$ROOT/global/context" "$GLOBAL_DIR/context"
-copy_tree "$ROOT/global/scripts" "$GLOBAL_DIR/scripts"
-copy_tree "$ROOT/global/plugins" "$GLOBAL_DIR/plugins"
-copy_tree "$ROOT/global/tools" "$GLOBAL_DIR/tools"
-copy_tree "$ROOT/.opencode/plugins" "$GLOBAL_DIR/plugins"
-copy_tree "$ROOT/.opencode/tools" "$GLOBAL_DIR/tools"
 copy_tree "$ROOT/global/templates" "$GLOBAL_DIR/templates"
 
-# --- 3. make scripts executable ---
+# --- 4. planner-core scripts (no browser/swarm server) ---
+for script in \
+  crypto-sign.js \
+  mcp-stdio.js \
+  a2a-registry.js \
+  a2a-registry-mcp.js \
+  aacp-codec-mcp.js \
+  aacp-log.js \
+  ail-codec-mcp.js \
+  ail-log.js \
+  summary.js \
+  dashboard.js \
+  extract-packets.js \
+  key-rotator.js
+do
+  copy_file "$ROOT/global/scripts/$script" "$GLOBAL_DIR/scripts/$script"
+done
+
+# --- 5. plugins + tools (only what is present) ---
+copy_tree "$ROOT/global/plugins" "$GLOBAL_DIR/plugins"
+copy_tree "$ROOT/.opencode/plugins" "$GLOBAL_DIR/plugins"
+copy_tree "$ROOT/global/tools" "$GLOBAL_DIR/tools"
+copy_tree "$ROOT/.opencode/tools" "$GLOBAL_DIR/tools"
+
+# --- 6. make installed scripts executable ---
 if [ -z "$DRY_RUN" ]; then
   chmod +x "$GLOBAL_DIR"/scripts/*.js 2>/dev/null || true
-  chmod +x "$GLOBAL_DIR"/templates/multiagent-project/scripts/* 2>/dev/null || true
+  find "$GLOBAL_DIR/templates/multiagent-project/scripts" -type f \
+    \( -name '*.js' -o -name '*.sh' \) -exec chmod +x {} + 2>/dev/null || true
 fi
 
-# --- 4. optional: install the project template into a target project ---
+# --- 7. optional: install the host-project template into a target project ---
 if [ -n "$PROJECT" ]; then
-  echo "install-global: installing project template -> $PROJECT"
+  echo "install-global: installing host-project template -> $PROJECT"
   run mkdir -p "$PROJECT"
   copy_tree "$ROOT/global/templates/multiagent-project" "$PROJECT"
   copy_tree "$ROOT/deploy" "$PROJECT/deploy"
   for file in Dockerfile .dockerignore render.yaml; do
-    if [ -f "$ROOT/$file" ]; then
-      if [ -n "$DRY_RUN" ]; then
-        echo "[dry-run] cp $ROOT/$file $PROJECT/$file"
-      else
-        cp "$ROOT/$file" "$PROJECT/$file"
-      fi
-    fi
+    copy_file "$ROOT/$file" "$PROJECT/$file"
   done
   if [ ! -f "$PROJECT/.env" ] && [ -f "$ROOT/.env" ] && [ -z "$DRY_RUN" ]; then
     cp "$ROOT/.env" "$PROJECT/.env"
@@ -103,7 +136,6 @@ fi
 echo
 echo "install-global: done."
 echo "next steps:"
-echo "  1. cp .env.example .env && edit DEEPSEEK_KEY_1..5"
-echo "  2. source .env"
-echo "  3. bash scripts/verify-prereqs.sh"
-echo "  4. opencode run --agent planner \"@planner decompose and dispatch\""
+echo "  1. The planner model/API key comes from your global OpenCode config."
+echo "  2. bash scripts/verify-prereqs.sh"
+echo "  3. opencode run --agent planner \"@planner decompose and dispatch\""

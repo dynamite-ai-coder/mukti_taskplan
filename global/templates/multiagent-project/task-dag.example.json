@@ -1,15 +1,21 @@
 {
   "run_id": "run-example-001",
   "objective": "Build a simple todo app with HTML/CSS/JS",
+  "meta": {
+    "_note": "meta.remote=true marks tasks the planner must dispatch to an agent discovered in the A2A registry (by capability) rather than run locally. Set a task's own meta.remote to override this DAG default; if no agent matches, the planner leaves the task queued with meta.remote=true.",
+    "remote": true
+  },
   "tasks": [
     {
       "id": "t1",
       "subject": "Scaffold static app shell",
       "description": "Create index.html with a form, list container and links to style.css and app.js.",
       "role": "builder",
+      "capability": "code_write",
       "model": "deepseek-account-2/deepseek-v4-flash",
       "blockedBy": [],
       "reviewBy": "reviewer",
+      "meta": { "remote": true },
       "evidence": {
         "files": ["index.html"],
         "commands": ["node --check app.js"]
@@ -21,9 +27,11 @@
       "subject": "Implement todo logic",
       "description": "Add add/remove/toggle logic with localStorage persistence in app.js.",
       "role": "builder",
+      "capability": "code_write",
       "model": "deepseek-account-3/deepseek-v4-flash",
       "blockedBy": ["t1"],
       "reviewBy": "reviewer",
+      "meta": { "remote": true },
       "evidence": {
         "files": ["app.js"],
         "commands": ["node --check app.js"]
@@ -35,9 +43,11 @@
       "subject": "Style the app",
       "description": "Write style.css with a clean responsive layout.",
       "role": "builder",
+      "capability": "code_write",
       "model": "deepseek-account-4/deepseek-v4-flash",
       "blockedBy": ["t1"],
       "reviewBy": "reviewer",
+      "meta": { "remote": true },
       "evidence": {
         "files": ["style.css"],
         "commands": []

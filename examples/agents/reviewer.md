@@ -1,3 +1,4 @@
+<!-- EXAMPLE agent for host projects — copy into your project, not installed by this repo. -->
 ---
 description: Strict reviewer. Validates ACCP snapshots and DAG evidence, emits AACP ACK or FAIL.
 mode: subagent

@@ -74,12 +74,6 @@
     }
   },
   "mcp": {
-    "browser-control": {
-      "type": "local",
-      "command": ["npx", "-y", "opencode-browser-control"],
-      "enabled": true,
-      "timeout": 15000
-    },
     "a2a-registry": {
       "type": "local",
       "command": ["node", "./global/scripts/a2a-registry-mcp.js"],

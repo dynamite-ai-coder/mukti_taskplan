@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # ============================================================
-# smoke-test.sh — Step 14 of the build prompt
+# smoke-test.sh — planner-core smoke test
 #   bash scripts/smoke-test.sh --static      (no model calls)
 #   bash scripts/smoke-test.sh               (+ registry + summary)
-#   bash scripts/smoke-test.sh --live        (+ a real planner run if keys set)
+#   bash scripts/smoke-test.sh --live        (+ a real planner run if a key is set)
+#
+# Checks are planner-only: JS/JSON/shell syntax, AACP+AIL round trips and
+# bench, codec MCP handshakes, the A2A registry and the summary report.
+# Browser/Chromium and multi-account-rotator checks are dropped or guarded.
 # ============================================================
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GLOBAL_DIR="${OPENCODE_GLOBAL_DIR:-$HOME/.config/opencode}"
 STATIC_ONLY="${1:-}"
 FAILED=0
 CHECKS=0
@@ -16,10 +21,10 @@ pass() { CHECKS=$((CHECKS + 1)); printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 warn() { printf '  \033[33mWARN\033[0m  %s\n' "$1"; }
 bad()  { CHECKS=$((CHECKS + 1)); FAILED=1; printf '  \033[31mFAIL\033[0m  %s\n' "$1"; }
 
-echo "smoke-test: root=$ROOT"
+echo "smoke-test: root=$ROOT (planner-only)"
 
 # --- 1. JS syntax ---
-JS_FILES="$(find "$ROOT/global/scripts" "$ROOT/global/protocols" "$ROOT/.opencode/plugins" "$ROOT/global/templates" -name '*.js' -type f 2>/dev/null)"
+JS_FILES="$(find "$ROOT/global/scripts" "$ROOT/global/protocols" "$ROOT/.opencode/plugins" "$ROOT/global/templates" "$ROOT/deploy" -name '*.js' -type f 2>/dev/null)"
 if [ -z "$JS_FILES" ]; then
   bad "no JS files found"
 else
@@ -32,15 +37,21 @@ fi
 
 # --- 2. JSON validity ---
 JSON_BAD=0
-for file in "$ROOT/opencode.json" "$ROOT/global/templates/multiagent-project/opencode.json" "$ROOT/global/templates/multiagent-project/task-dag.example.json" "$ROOT/.opencode/package.json"; do
+for file in \
+  "$ROOT/opencode.json" \
+  "$ROOT/global/templates/multiagent-project/opencode.json" \
+  "$ROOT/global/templates/multiagent-project/task-dag.example.json" \
+  "$ROOT/.opencode/package.json"
+do
   [ -f "$file" ] || continue
   node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$file" >/dev/null 2>&1 || { JSON_BAD=1; printf '        invalid JSON: %s\n' "$file"; }
 done
 [ "$JSON_BAD" -eq 0 ] && pass "JSON configs valid" || bad "invalid JSON configs"
 
 # --- 3. Shell syntax ---
+SH_FILES="$(find "$ROOT/scripts" "$ROOT/global/templates" -name '*.sh' -type f 2>/dev/null)"
 SH_BAD=0
-for file in "$ROOT"/scripts/*.sh "$ROOT"/global/templates/multiagent-project/scripts/*.sh; do
+for file in $SH_FILES; do
   [ -f "$file" ] || continue
   bash -n "$file" >/dev/null 2>&1 || { SH_BAD=1; printf '        shell syntax: %s\n' "$file"; }
 done
@@ -103,13 +114,17 @@ else
   bad "ail-codec MCP handshake"
 fi
 
-# --- 7. Key rotator 429 failover ---
-ROTATOR_OUT="$(DEEPSEEK_KEY_1=test-key-1 DEEPSEEK_KEY_2=test-key-2 DEEPSEEK_KEY_3=test-key-3 \
-  node "$ROOT/global/scripts/key-rotator.js" test 2>/dev/null || true)"
-if printf '%s' "$ROTATOR_OUT" | grep -q '"key_switches_total": 1'; then
-  pass "key-rotator 429 cooldown + failover"
+# --- 7. Key rotator (only if the planner core still ships it) ---
+if [ -f "$ROOT/global/scripts/key-rotator.js" ]; then
+  ROTATOR_OUT="$(DEEPSEEK_KEY_1=test-key-1 DEEPSEEK_KEY_2=test-key-2 DEEPSEEK_KEY_3=test-key-3 \
+    node "$ROOT/global/scripts/key-rotator.js" test 2>/dev/null || true)"
+  if printf '%s' "$ROTATOR_OUT" | grep -q '"key_switches_total": 1'; then
+    pass "key-rotator 429 cooldown + failover"
+  else
+    printf '%s' "$ROTATOR_OUT" | grep -q '"key_switches_total"' && pass "key-rotator runs" || bad "key-rotator 429 failover"
+  fi
 else
-  printf '%s' "$ROTATOR_OUT" | grep -q '"key_switches_total"' && pass "key-rotator runs" || bad "key-rotator 429 failover"
+  warn "key-rotator.js not present — skipping rotator check"
 fi
 
 if [ "$STATIC_ONLY" = "--static" ]; then
@@ -134,7 +149,7 @@ fi
 
 # --- 9. Summary report generation ---
 TMP_LOGS="$(mktemp -d)"
-printf '%s\n' '{"v":1,"op":"DISPATCH","task":"t1","role":"builder","meta":{"run":"smoke","hash":"x"}}' > "$TMP_LOGS/aacp.log"
+printf '%s\n' '{"v":1,"op":"DISPATCH","task":"t1","role":"planner","meta":{"run":"smoke","hash":"x"}}' > "$TMP_LOGS/aacp.log"
 printf '%s\n' '{"v":1,"op":"RESULT","task":"t1","role":"builder","meta":{"run":"smoke","hash":"y"}}' >> "$TMP_LOGS/aacp.log"
 printf '%s\n' '{"v":1,"op":"ACK","task":"t1","role":"reviewer","meta":{"run":"smoke","hash":"z"}}' >> "$TMP_LOGS/aacp.log"
 node "$ROOT/global/scripts/summary.js" smoke --dir "$TMP_LOGS" >/dev/null 2>&1 || true
@@ -146,7 +161,7 @@ fi
 
 # --- 10. Optional live planner run ---
 if [ "$STATIC_ONLY" = "--live" ]; then
-  if [ -n "${DEEPSEEK_KEY_1:-}" ] && [ -n "${DEEPSEEK_KEY_2:-}" ]; then
+  if [ -n "${DEEPSEEK_KEY_1:-}" ]; then
     TMP_PROJECT="$(mktemp -d)"
     bash "$ROOT/scripts/install-global.sh" --project "$TMP_PROJECT" >/dev/null 2>&1 || true
     ( cd "$TMP_PROJECT" && timeout 180 opencode run --agent planner "@planner produce a 2-task DAG for a hello-world index.html and emit AACP DISPATCH packets" >/dev/null 2>&1 )
@@ -156,7 +171,7 @@ if [ "$STATIC_ONLY" = "--live" ]; then
       warn "live planner run produced no logs (model output may not include AACP lines)"
     fi
   else
-    warn "DEEPSEEK_KEY_1/2 not set — skipping live planner run"
+    warn "DEEPSEEK_KEY_1 not set — skipping live planner run"
   fi
 fi
 

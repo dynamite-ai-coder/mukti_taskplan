@@ -1,3 +1,4 @@
+<!-- EXAMPLE agent for host projects — copy into your project, not installed by this repo. -->
 ---
 description: Browser operator. Navigates real sites with ARIA snapshots, fills forms, extracts data; speaks A2A + AACP.
 mode: subagent

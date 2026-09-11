@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # ============================================================
-# verify-prereqs.sh — Step 1 of the build prompt
-# Checks Node >= 22.19.0, OpenCode CLI, Git, Chrome/Edge/Chromium,
-# and whether ports 8788 (A2A registry) / 8789 (browser agent) are free.
+# verify-prereqs.sh — planner-core environment check
+# Checks Node >= 22.19.0, OpenCode CLI, Git, the planner agent and
+# whether the A2A registry port 8788 is free.
+#
+# Browser/Chromium checks are intentionally NOT part of this repo: the
+# planner is worker-agnostic and host projects bring their own agents.
 # ============================================================
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GLOBAL_DIR="${OPENCODE_GLOBAL_DIR:-$HOME/.config/opencode}"
 FAILED=0
 
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 warn() { printf '  \033[33mWARN\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILED=1; }
 
-echo "verify-prereqs: checking environment"
+echo "verify-prereqs: checking environment (planner-only)"
 echo
 
 # --- Node.js >= 22.19.0 ---
@@ -42,40 +46,29 @@ else
   bad "Git not found"
 fi
 
-# --- Browser for Playwright/CDP ---
-BROWSER=""
-for candidate in google-chrome google-chrome-stable chromium chromium-browser microsoft-edge microsoft-edge-stable; do
-  if command -v "$candidate" >/dev/null 2>&1; then BROWSER="$candidate"; break; fi
-done
-if [ -z "$BROWSER" ] && ls "$HOME/.cache/ms-playwright"/chromium* >/dev/null 2>&1; then
-  BROWSER="playwright-bundled-chromium"
-fi
-if [ -n "$BROWSER" ]; then
-  pass "Browser available ($BROWSER)"
+# --- Planner agent (repo or global install) ---
+if [ -f "$ROOT/.opencode/agents/planner.md" ]; then
+  pass "planner agent present ($ROOT/.opencode/agents/planner.md)"
+elif [ -f "$GLOBAL_DIR/agents/planner.md" ]; then
+  pass "planner agent present ($GLOBAL_DIR/agents/planner.md)"
 else
-  bad "No Chrome/Edge/Chromium found (needed by opencode-browser-control)"
+  warn "planner agent not found — run bash scripts/install-global.sh"
 fi
 
-# --- Ports 8788 / 8789 ---
-PORTS="$(node -e '
+# --- A2A registry port 8788 ---
+PORT_STATE="$(node -e '
 const net=require("net");
-const ports=[8788,8789];
-const busy=[];
-let pending=ports.length;
-const done=()=>{ if(0===--pending){ console.log(busy.length?busy.join(","):"free"); } };
-for(const p of ports){
-  const s=net.createServer();
-  s.once("error",()=>{ busy.push(p); done(); });
-  s.once("listening",()=>s.close(done));
-  s.listen(p,"127.0.0.1");
-}
+const s=net.createServer();
+s.once("error",()=>{ console.log("busy"); process.exit(0); });
+s.once("listening",()=>s.close(()=>{ console.log("free"); process.exit(0); }));
+s.listen(Number(process.env.A2A_REGISTRY_PORT||8788),"127.0.0.1");
 ' 2>/dev/null || echo "unknown")"
-if [ "$PORTS" = "free" ]; then
-  pass "Ports 8788 and 8789 are free"
-elif [ "$PORTS" = "unknown" ]; then
-  warn "Could not determine port availability"
+if [ "$PORT_STATE" = "free" ]; then
+  pass "Port ${A2A_REGISTRY_PORT:-8788} is free"
+elif [ "$PORT_STATE" = "unknown" ]; then
+  warn "Could not determine A2A registry port availability"
 else
-  warn "Port(s) in use: $PORTS (fine if the A2A registry / browser agent is already running)"
+  warn "Port ${A2A_REGISTRY_PORT:-8788} in use (fine if the registry is already running)"
 fi
 
 # --- Resolved OpenCode config (best effort) ---

@@ -1,39 +1,51 @@
-# README-multiagent.md — OpenCode multi-agent system v2.0
+# Connect an agent to the planner
 
-Portable multi-agent template for OpenCode + DeepSeek V4 (5 accounts) with
-**AACP** (coordination compression), **ACCP** (context compression), **A2A**
-(remote agent discovery/transport) and a Playwright browser agent.
+A practical guide for host projects that use the **mukti_taskplan planner**. The planner
+decomposes a goal into a `task-dag.json` and dispatches each ready task to an agent it
+discovers in the **A2A registry**. This guide shows how to install the planner, stand up a
+host project, register your own agent, and speak the dispatch protocol.
 
-```
-LAYER 1  OpenCode CLI ................ agent runtime
-LAYER 2  5x DeepSeek accounts ........ V4-Flash builders, V4-Pro planner/reviewer
-LAYER 3  AIL + AACP + ACCP + A2A ..... compressed coordination (AIL = AI-native default)
-LAYER 4  browser-control MCP ......... ARIA-snapshot web automation
-LAYER 5  key pool + 429 failover ..... resilience
-```
-
-Roles: `planner` (primary) -> `builder-1..3` (parallel) + `browser` (A2A) ->
-`reviewer` (ACK/FAIL) -> `integrator` (primary).
+- The planner is the only agent installed by this repo (`.opencode/agents/planner.md`).
+- Your agent can be local (an OpenCode subagent in your project) or remote (any process
+  exposing a JSON-RPC endpoint). For remote agents, the registry is the contract.
+- Reference worker prompts live in [`examples/agents/`](examples/agents/) — copy them if
+  you want a starting point, but they are not installed and not required.
 
 ---
 
-## 1. Install in a new project
+## 1. Install the planner globally
+
+From a clone of this repo:
 
 ```bash
-git clone <this-repo> mukti_taskplan
-cd mukti_taskplan
-
-cp .env.example .env          # fill DEEPSEEK_KEY_1..5
+cp .env.example .env          # fill DEEPSEEK_KEY_1 (planner); add more accounts as needed
 bash scripts/install-global.sh
 bash scripts/verify-prereqs.sh
 ```
 
-`install-global.sh` merges providers + MCP servers into `~/.config/opencode/opencode.json`
-(existing keys are preserved, a `.bak.<timestamp>` backup is written) and copies
-`agents/`, `protocols/`, `context/`, `scripts/`, `plugins/`, `tools/`, `templates/`
-into `~/.config/opencode/`.
+`install-global.sh`:
 
-To scaffold a new project:
+- merges the providers + MCP servers from `opencode.json` into
+  `~/.config/opencode/opencode.json` (existing keys preserved; a
+  `opencode.json.bak.<timestamp>` backup is written);
+- copies the planner (`.opencode/agents/`), `global/protocols/`, `global/context/`,
+  `global/scripts/`, plugins, tools and the project template into `~/.config/opencode/`;
+- does **not** copy `examples/agents/`.
+
+Verify:
+
+```bash
+opencode debug config                       # resolved config parses
+curl -s localhost:8788/.well-known/agent.json   # registry card (starts on first a2a call)
+```
+
+`A2A_REGISTRY_PORT` (default `8788`) and `BROWSER_A2A_PORT` (default `8789`) can be
+overridden via env.
+
+## 2. Define a host project
+
+Scaffold a project from the template (config + `task-dag.example.json` + dispatch helper +
+optional Render assets):
 
 ```bash
 bash scripts/install-global.sh --project ~/work/my-app
@@ -41,260 +53,210 @@ cd ~/work/my-app
 cp .env.example .env && $EDITOR .env
 ```
 
-The project template expects the global install; `opencode.json` in the project only
-pins models, MCP usage and `default_agent: planner`. `--project` also copies the Render
-deployment assets (`Dockerfile`, `render.yaml`, `.dockerignore`, `deploy/`) so the new
-project can be deployed as a service immediately.
+The host project's `opencode.json`:
 
-## 2. Set the 5 API keys
+- pins `default_agent: planner` and the planner's `provider/model`;
+- enables the MCP servers `a2a-registry`, `aacp-codec` and `ail-codec` (the template
+  versions reference `~/.config/opencode/scripts/...`);
+- optionally declares your own subagents under `agent` (for local agents).
 
-Each account maps to a provider (`deepseek-account-1..5`) in `opencode.json` and reads
-`{env:DEEPSEEK_KEY_N}`. Never hardcode keys. Account assignment:
+Model accounts are referenced by env var only:
 
-| Account | Provider | Used by |
+| Account | Provider | Typical use |
 | --- | --- | --- |
-| 1 | `deepseek-account-1` | planner, reviewer, integrator (V4-Pro), `small_model` (V4-Flash) |
-| 2 | `deepseek-account-2` | builder-1 (V4-Flash) |
-| 3 | `deepseek-account-3` | builder-2 (V4-Flash) |
-| 4 | `deepseek-account-4` | builder-3 (V4-Flash) |
-| 5 | `deepseek-account-5` | browser (V4-Flash) |
+| 1 | `deepseek-account-1` | planner (V4-Pro) |
+| 2–5 | `deepseek-account-2..5` | whatever your host assigns to its workers |
 
-```bash
-source .env
-opencode models | grep deepseek-account
-```
+The planner assumes nothing about which accounts exist — per-task `model` values are
+`provider/model` strings supplied by your host, and every target is discovered at runtime.
 
-## 3. Dispatch a swarm
+## 3. Register an Agent Card
 
-Interactive: switch to the `planner` agent (Tab) or mention it:
-
-```
-@planner Build a simple todo app with HTML/CSS/JS. Decompose into tasks.
-```
-
-CLI with a DAG:
-
-```bash
-source .env
-opencode run --agent planner "@planner decompose the goal in task-dag.json and dispatch the swarm"
-
-# full pipeline with side-channel logging + budget report:
-bash scripts/dispatch-swarm.sh task-dag.json
-bash scripts/dispatch-swarm.sh task-dag.json --with-browser
-```
-
-Flow: planner writes the DAG -> emits AACP `DISPATCH` per task -> Task tool invokes
-`builder-1..3` / `browser` in parallel -> each returns `RESULT` + ACCP snapshot ->
-`reviewer` emits `ACK`/`FAIL` -> `integrator` merges ACKed tasks into the final artifact.
-
-## 3b. AIL — the AI-native language
-
-AIL (AI-native Interlingua, `protocols/ail.md`) is the default wire language. It replaces
-human-readable JSON with positional frames and a shared symbol dictionary so models spend
-fewer tokens per unit of meaning.
-
-```
->1x9k|D|t1|b|c|#a3f2|fo|p1,h7c3^1a2b3c4d      control: DISPATCH task t1 to builder, code,
-                                              ref src/app.js (dict handle), ret files+stdout
-$1x9k|r1|t5|c|fc=#a3f2,tp=1|+persist          state: run r1, cursor t5, files_created,
-                                              tests_passing, delta +persist
-~1x9k|c|todo-localStorage;evt-delegation|...  reason: model-to-model thinking state
-@1x9k|t2|todo-logic|impl-add;persist|app.js    directive: compressed task brief
-#1x9k|+#a3f2=src/app.js                       dictionary delta (sent once per peer)
-```
-
-Frame types: `>` control, `$` state, `~` reason, `@` directive, `#` dictionary.
-Core vocabulary is embedded in every agent prompt; long strings (paths, URLs, recurring
-terms) are learned into 5-char handles such as `#a3f2`.
-
-```bash
-node ~/.config/opencode/scripts/ail-log.js dispatch t1 '{"role":"builder-1","ref":["src/app.js"]}'
-node ~/.config/opencode/scripts/ail-codec.js decode '>fkgato|D|t1|b|c|#eqir|fo|p1'
-node ~/.config/opencode/scripts/ail-codec.js bench '<aacp json>' '<frame json>'
-```
-
-Measured: control frame 28 tokens (41 with the one-time dictionary delta) vs 95 for the
-same AACP packet; a full dispatch->result->state->reason->ack cycle is 54 tokens vs the
-1125-token/hop naive baseline. AACP/ACCP remain valid fallbacks.
-
-## 3c. Deploy on Render as a service
-
-The repo deploys as one Docker web service running the gateway
-(`deploy/render/gateway.js`), which hosts the A2A registry, the browser A2A server and an
-`opencode serve` instance, and exposes a public job API.
-
-```bash
-# Blueprint (render.yaml): New -> Blueprint -> select this repo
-# Then set DEEPSEEK_KEY_1..5 in the dashboard (SERVICE_API_KEY/A2A_SECRET are generated).
-
-curl https://<service>.onrender.com/health
-curl -X POST https://<service>.onrender.com/swarm \
-  -H "Authorization: Bearer $SERVICE_API_KEY" -H "content-type: application/json" \
-  -d '{"objective":"Build a todo app with HTML/CSS/JS"}'
-curl -H "Authorization: Bearer $SERVICE_API_KEY" https://<service>.onrender.com/jobs/<job_id>/log
-node ~/.config/opencode/scripts/summary.js --dir /data/logs   # inside the container
-```
-
-| Endpoint | Description |
-| --- | --- |
-| `GET /health` | liveness for Render health checks |
-| `GET /.well-known/agent.json` | signed gateway Agent Card |
-| `POST /swarm` | queue a DAG/objective; returns `{id, run_id, status}` |
-| `GET /jobs`, `/jobs/:id`, `/jobs/:id/log`, `/jobs/:id/summary` | job state + AIL/budget logs |
-| `DELETE /jobs/:id` | cancel a run |
-| `GET /stream` | SSE job events (auth via `?key=`) |
-| `GET /agents` | registry listing (`/a2a/*`, `/browser/*`, `/opencode/*` proxies) |
-
-Render specifics shipped in the repo: `Dockerfile` (Chromium + `--no-sandbox` via
-`CHROMIUM_USER_FLAGS`), `render.yaml` (starter plan, 1 GB disk at `/data`,
-`MAX_CONCURRENT_JOBS=1`, generated secrets), and `/data` for logs/reports/workspace.
-
-
-## 4. Add custom roles
-
-1. Create `~/.config/opencode/agents/my-role.md`:
-
-   ```markdown
-   ---
-   description: One-line description used for Task-tool routing.
-   mode: subagent
-   model: deepseek-account-3/deepseek-v4-flash
-   permission:
-     read: allow
-     edit: allow
-     bash: allow
-     task: deny
-   ---
-   You are ... follow protocols/aacp.md and protocols/accp.md ...
-   ```
-
-2. Allow the planner to invoke it by adding `my-role: allow` under
-   `permission.task` in `agents/planner.md`.
-3. Use a distinct `writes` glob in the DAG for every new role (conflict boundary).
-
-## 5. Extend AACP with new verbs
-
-1. Add the verb to the spec (`protocols/aacp.md`) and to `OPS` in
-   `protocols/aacp-encoder.js`.
-2. Add its semantics to the verb table (direction + expected `ret`).
-3. Update consumers that switch on `op` (reviewer/integrator prompts, `summary.js`).
-4. Keep packets one-line JSON; bump `v` only for breaking field changes.
-
-For AIL, add the new symbol to `CORE` in `protocols/ail-codec.js`, document it in
-`protocols/ail.md`, and use the next free single letter (ops `D R Q A F`, and so on).
-
-## 6. Extend A2A with new capabilities
-
-1. Add the capability string to an agent's card `capabilities` array.
-2. If the registry enforces a whitelist (`A2A_CAPABILITY_WHITELIST`), add it there.
-3. Planner discovers it with the `a2a_discover` MCP tool; route work via `a2a_dispatch`.
-4. Long operations should stream status over SSE (`/stream`).
-
-## 7. Interpret ACCP snapshots
+An Agent Card is the only thing the planner needs to find and call your agent. Required
+fields: `did`, `name`, `capabilities`, `endpoints.rpc`.
 
 ```json
 {
-  "v": 1, "run_id": "run-2026-09-11-abc123", "cursor": "t5",
+  "did": "did:local:my-builder",
+  "name": "my-builder",
+  "capabilities": ["code_gen", "test"],
+  "endpoints": {
+    "rpc": "http://127.0.0.1:8790/rpc",
+    "stream": "http://127.0.0.1:8790/stream"
+  },
+  "limits": { "max_rps": 5, "timeout_ms": 60000 },
+  "trust": 0.9
+}
+```
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `did` | yes | stable local DID, e.g. `did:local:my-builder` |
+| `name` | yes | target handle the planner can pass to `a2a_dispatch` |
+| `capabilities` | yes | capability strings, e.g. `code_gen`, `test`, `web_navigate`, `review` |
+| `endpoints.rpc` | yes | your JSON-RPC 2.0 endpoint that answers `task.dispatch` |
+| `endpoints.stream` | no | SSE endpoint for long-running `job.updated` events |
+| `limits` | no | advertised `max_rps` / `timeout_ms` |
+| `trust` | no | 0–1; the planner prefers higher trust among matching agents |
+
+Register via the `a2a_register` MCP tool with `{ "card": { ... } }`, or over JSON-RPC:
+
+```bash
+curl -s http://127.0.0.1:8788/rpc -H 'content-type: application/json' -d '{
+  "jsonrpc": "2.0", "id": 1, "method": "registry.register",
+  "params": { "card": {
+    "did": "did:local:my-builder", "name": "my-builder",
+    "capabilities": ["code_gen", "test"],
+    "endpoints": { "rpc": "http://127.0.0.1:8790/rpc" }
+  } }
+}'
+```
+
+Confirm discovery:
+
+```bash
+# all agents
+curl -s http://127.0.0.1:8788/rpc -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"registry.list","params":{}}'
+# capability match
+curl -s http://127.0.0.1:8788/rpc -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"registry.discover","params":{"capability":"code_gen"}}'
+```
+
+Remove a card with `a2a_unregister` / `registry.unregister` (`{ "did": "..." }`).
+
+## 4. The dispatch flow
+
+```
+host / user
+   │ goal
+   ▼
+planner ── writes task-dag.json ──► a2a_list / a2a_discover  (registry :8788)
+   │                                        │ cards
+   │  AACP DISPATCH / AIL > frame           ▼
+   └── a2a_dispatch ─► registry task.dispatch ─► your endpoint :8790 (JSON-RPC task.dispatch)
+                                                        │ execute task body from task-dag.json
+                                                        ▼
+                                             RESULT + ACCP snapshot / AIL $ state
+                                                        │
+        planner ◄── task.result / task.status ──────────┘
+           │ (optional reviewer) ─► ACK / FAIL
+           ▼
+     mark task done / requeue on FAIL or timeout
+```
+
+Step by step:
+
+1. **Plan.** The planner writes `task-dag.json` (`run_id`, `objective`, `tasks[]`), each
+   task with `id`, `role`, `blockedBy`, `evidence`, `writes`.
+2. **Discover.** It calls `a2a_list` / `a2a_discover` and maps each ready task to a
+   registered agent by capability, preferring higher `trust`.
+3. **Dispatch.** For every ready task it emits one AACP `DISPATCH` (or AIL `>` control
+   frame) carrying only the task ID and `ref: ["task-dag.json"]`, then routes it with
+   `a2a_dispatch` → registry `task.dispatch` → your `endpoints.rpc`.
+4. **Receive.** Your endpoint is called with JSON-RPC method `task.dispatch` and
+   `params: { "packet": { ... }, "from": "did:local:a2a-registry" }`. Read the full task
+   body from `task-dag.json` by the packet's `task` ID. Never expect the body on the wire.
+5. **Reply.** Return the task outcome as the JSON-RPC `result`: an AACP `RESULT` packet
+   plus an ACCP snapshot (or AIL `$` state frame). The registry stores it on the job and
+   returns `{ job_id, status, result }` to the planner, which can re-read it with
+   `task.result` (`{ "id": "<job_id>" }`).
+6. **Review.** If a `reviewer`-capability agent is registered, the planner forwards the
+   snapshot for `ACK`/`FAIL`; a task is done only on `ACK`, and `FAIL`/timeout requeues it.
+
+The registry proxy waits up to **60 s** for your endpoint. For longer work, answer quickly
+with an acknowledgement and stream progress over your `endpoints.stream` SSE, then write the
+final `RESULT`/snapshot to the side channel.
+
+### Packet examples
+
+AACP control (human-readable fallback):
+
+```json
+{"v":1,"op":"DISPATCH","task":"t1","role":"builder","dom":"code","ref":["task-dag.json"],"ret":["files","stdout"]}
+{"v":1,"op":"RESULT","task":"t1","role":"builder","ref":["index.html"],"ret":["files","stdout"]}
+```
+
+AIL control (default wire language; `>` = control, `D`/`R` = DISPATCH/RESULT, `b` = builder,
+`c` = code):
+
+```
+>1x9k|D|t1|b|c|#a3f2|fo|p1
+>1x9k|R|t1|b|_|#a3f2|fo|_
+```
+
+Emit into the side channel with:
+
+```bash
+node ~/.config/opencode/scripts/ail-log.js dispatch t1 '{"role":"builder","dom":"code","ref":["task-dag.json"]}'
+node ~/.config/opencode/scripts/aacp-log.js result t1 '{"role":"builder","ref":["index.html"],"ret":["files"]}'
+```
+
+## 5. ACCP snapshot format
+
+Handoffs carry a snapshot, never a transcript. Return one alongside your `RESULT`:
+
+```json
+{
+  "v": 1,
+  "run_id": "run-2026-09-12-abc123",
+  "cursor": "t1",
   "facts": [
-    { "k": "files_created", "v": ["src/a.js"] },
+    { "k": "files_created", "v": ["index.html"] },
     { "k": "tests_passing", "v": true },
     { "k": "blockers", "v": [] }
   ],
   "intent": "code_gen",
-  "delta": ["added localStorage persistence"],
+  "delta": ["created index.html"],
   "hash": "sha256:..."
 }
 ```
 
-`facts` = durable state (must match DAG evidence), `delta` = last step only. Identical
-`hash` = cache hit. Reviewers accept snapshots, never transcripts.
+| Field | Meaning |
+| --- | --- |
+| `run_id` | must match `task-dag.json:run_id` |
+| `cursor` | the completed task ID |
+| `facts` | durable state matching the DAG `evidence` (files, tests, blockers) |
+| `intent` | `code_gen` \| `refactor` \| `test` \| `research` |
+| `delta` | only what changed in the last step |
+| `hash` | content address; identical hash = cache hit |
 
-## 8. Troubleshoot 429s
+Journal it to `logs/accp.jsonl` (one JSON object per line) or use the `ail-codec` /
+`aacp-codec` MCP `*_log` tools. The AIL equivalent is a `$` state frame:
 
-- Native OpenCode multi-provider does **not** auto-rotate on 429. This template uses two
-  layers:
-  - **Pinning**: each builder/browser uses a different `deepseek-account-N`, so a 429 on
-    one account does not affect the others.
-  - **Rotator**: `scripts/key-rotator.js` (and the `get-key` custom tool) tracks in-flight
-    requests per key, cools a key on 429, and exposes `key_switches_total`.
-
-```bash
-node ~/.config/opencode/scripts/key-rotator.js status
-node ~/.config/opencode/scripts/key-rotator.js next
-DEEPSEEK_KEY_1=x node ~/.config/opencode/scripts/key-rotator.js test
+```
+$1x9k|run-2026-09-12-abc123|t1|c|fc=#a3f2,tp=1,bl=_|created index.html
 ```
 
-The `get-key` tool never returns raw keys — only the account/env slot, so the model
-cannot leak secrets. It accepts `rate_limited_account: N` to trigger failover.
+## 6. Roles and capabilities
 
-## 9. Read the dashboard
+The planner routes by the capability you advertise, not by a fixed role name. Common
+capabilities and the example agents that implement them:
 
-```bash
-tail -f logs/*.log | node ~/.config/opencode/scripts/dashboard.js
-node ~/.config/opencode/scripts/dashboard.js --dir logs --once
-node ~/.config/opencode/scripts/summary.js <run_id>
-```
+| Capability | Example agent |
+| --- | --- |
+| `code_gen`, `test` | `builder-1`, `builder-2`, `builder-3` |
+| `web_navigate`, `form_fill`, `data_extract` | `browser` |
+| `review` | `reviewer` |
+| `integration`, `merge` | `integrator` |
 
-- `logs/aacp.log` — AACP packets (JSON lines, legacy/fallback)
-- `logs/accp.jsonl` — ACCP snapshots (legacy/fallback)
-- `logs/a2a.log` — A2A RPC calls / dispatches
-- `logs/ail.log` — AIL frames (AI-native wire language)
-- `logs/ail-dict.jsonl` — AIL dictionary deltas (symbol handles)
-- `reports/budget-<run_id>.json` — token budget vs the 4500-token naive baseline
+If no registered agent matches a ready task, the planner marks it `meta.remote: true` and
+leaves it queued rather than fabricating a worker.
 
-A run is on budget when `savings_pct >= 30`.
-
-## 10. Observability via plugin
-
-`plugins/protocol-logger.js` hooks `tool.execute.before/after` and writes every Task-tool
-dispatch and every AACP/ACCP line it sees to the side-channel logs. A `globalThis` guard
-prevents double logging when both the global and project copies are loaded.
-
-## 11. Security & trust
-
-- Local DIDs for remote agents (`did:local:browser-agent`, `did:local:a2a-registry`).
-- HMAC-SHA256 envelope signing (`A2A_SECRET`); set `A2A_REQUIRE_SIGNATURES=true` in prod.
-- Registry capability whitelist via `A2A_CAPABILITY_WHITELIST`.
-- Planners can only dispatch to registry-registered agents.
-- Secrets only via env vars; `.env`, `logs/` and `reports/` are git-ignored.
-
-## 12. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `browser-control` MCP fails | `npm i -g playwright-core && npx playwright install chromium` |
-| Browser launch hangs/fails as root | the wrapper auto-injects `--no-sandbox` via `CHROMIUM_USER_FLAGS`; override with `BROWSER_NO_SANDBOX=false`, or raise `BROWSER_MCP_TIMEOUT_MS` |
-| A2A registry port busy | `A2A_REGISTRY_PORT=9788` (update `.env` and MCP config) |
-| Render: 401 on API calls | send `Authorization: Bearer $SERVICE_API_KEY` (generated by the blueprint) |
-| Render: swarm job stuck in queue | `MAX_CONCURRENT_JOBS` reached; check `/jobs` and `JOB_TIMEOUT_MS` |
-| Render: logs lost after deploy | mount the disk at `/data` (default in `render.yaml`) |
-| `agent.json` 404 for browser | start `node ~/.config/opencode/scripts/browser-a2a-server.js` |
-| 429 from DeepSeek | use `get-key`, or pin builders to other accounts |
-| No packets in `logs/aacp.log` | run via `dispatch-swarm.sh`; the plugin only sees Task-tool traffic |
+| Planner finds no agents | register a card (`a2a_register`/`registry.register`) and confirm `registry.list` returns it; the `a2a-registry` MCP auto-starts the HTTP registry on 8788 |
+| `target not registered: my-builder` | pass the exact `did` or `name` from `a2a_list`; names are matched case-sensitively |
+| Dispatch times out | your `endpoints.rpc` must answer JSON-RPC `task.dispatch` within 60 s; ack long work and stream progress |
+| `packet signature missing or invalid` | set `A2A_SECRET` consistently and/or `A2A_REQUIRE_SIGNATURES=false` for local dev |
+| Registry port busy | `A2A_REGISTRY_PORT=9788` (update `.env` and the MCP command) |
 | `opencode debug config` errors | check JSON in `~/.config/opencode/opencode.json` |
+| 429 from DeepSeek | use the `get-key` tool / `key-rotator.js`, or assign workers to other accounts |
+| Planner emits no packets | the planner is read-only (`edit: deny`, `bash: deny`) and only routes; make sure `task-dag.json` exists and your prompt asks it to dispatch to registered agents |
+| No side-channel logs | ensure `logs/` exists and the plugin is installed; check `logs/a2a.log` for dispatch attempts |
 
-## 13. Repo layout
-
-```
-opencode.json                  project config (5 providers + 4 MCP servers)
-AGENTS.md                      repo rules for agents
-.opencode/agents/              canonical agent markdown (installed globally)
-.opencode/plugins/             protocol-logger side-channel plugin
-.opencode/tools/               get-key custom tool
-global/protocols/              ail.md + ail-codec.js, aacp.md + aacp-encoder.js, accp.md, a2a.md
-global/context/                task-dag.md, budget.md
-global/scripts/                ail-log, ail-codec-mcp, key-rotator, a2a-registry(+mcp),
-                               browser-a2a-server, dashboard, summary, ...
-global/templates/              multiagent-project drop-in template
-deploy/render/                 Render gateway (web service)
-Dockerfile, render.yaml        Render deployment assets
-scripts/                       install-global.sh, verify-prereqs.sh, smoke-test.sh
-```
-
-## 14. Smoke test
-
-```bash
-bash scripts/smoke-test.sh --static   # syntax, JSON, AIL/AACP round trips, MCP handshakes, rotator
-bash scripts/smoke-test.sh            # + live A2A registry + summary
-bash scripts/smoke-test.sh --live     # + real planner run (needs DEEPSEEK_KEY_1/2)
-```
+See also: [`README.md`](README.md) for the contract overview,
+[`global/protocols/a2a.md`](global/protocols/a2a.md) for the registry RPC reference, and
+[`global/context/task-dag.md`](global/context/task-dag.md) for the DAG schema.
