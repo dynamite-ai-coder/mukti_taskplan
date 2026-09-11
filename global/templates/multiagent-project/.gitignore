@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+logs/
+reports/
+artifacts/
+node_modules/
+*.log

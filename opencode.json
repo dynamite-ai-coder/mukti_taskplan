@@ -1,0 +1,93 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "default_agent": "planner",
+  "small_model": "deepseek-account-1/deepseek-v4-flash",
+  "provider": {
+    "deepseek-account-1": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek Account 1 (planner/reviewer)",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_KEY_1}",
+        "timeout": 300000
+      },
+      "models": {
+        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "deepseek-v4-pro": { "name": "DeepSeek V4 Pro" }
+      }
+    },
+    "deepseek-account-2": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek Account 2 (builder-1)",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_KEY_2}",
+        "timeout": 300000
+      },
+      "models": {
+        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "deepseek-v4-pro": { "name": "DeepSeek V4 Pro" }
+      }
+    },
+    "deepseek-account-3": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek Account 3 (builder-2)",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_KEY_3}",
+        "timeout": 300000
+      },
+      "models": {
+        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "deepseek-v4-pro": { "name": "DeepSeek V4 Pro" }
+      }
+    },
+    "deepseek-account-4": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek Account 4 (builder-3)",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_KEY_4}",
+        "timeout": 300000
+      },
+      "models": {
+        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "deepseek-v4-pro": { "name": "DeepSeek V4 Pro" }
+      }
+    },
+    "deepseek-account-5": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek Account 5 (browser)",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "{env:DEEPSEEK_KEY_5}",
+        "timeout": 300000
+      },
+      "models": {
+        "deepseek-v4-flash": { "name": "DeepSeek V4 Flash" },
+        "deepseek-v4-pro": { "name": "DeepSeek V4 Pro" }
+      }
+    }
+  },
+  "mcp": {
+    "browser-control": {
+      "type": "local",
+      "command": ["npx", "-y", "opencode-browser-control"],
+      "enabled": true,
+      "timeout": 15000
+    },
+    "a2a-registry": {
+      "type": "local",
+      "command": ["node", "./global/scripts/a2a-registry-mcp.js"],
+      "enabled": true,
+      "timeout": 15000
+    },
+    "aacp-codec": {
+      "type": "local",
+      "command": ["node", "./global/scripts/aacp-codec-mcp.js"],
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}

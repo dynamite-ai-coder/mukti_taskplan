@@ -1,0 +1,48 @@
+{
+  "run_id": "run-example-001",
+  "objective": "Build a simple todo app with HTML/CSS/JS",
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "Scaffold static app shell",
+      "description": "Create index.html with a form, list container and links to style.css and app.js.",
+      "role": "builder",
+      "model": "deepseek-account-2/deepseek-v4-flash",
+      "blockedBy": [],
+      "reviewBy": "reviewer",
+      "evidence": {
+        "files": ["index.html"],
+        "commands": ["node --check app.js"]
+      },
+      "writes": ["index.html"]
+    },
+    {
+      "id": "t2",
+      "subject": "Implement todo logic",
+      "description": "Add add/remove/toggle logic with localStorage persistence in app.js.",
+      "role": "builder",
+      "model": "deepseek-account-3/deepseek-v4-flash",
+      "blockedBy": ["t1"],
+      "reviewBy": "reviewer",
+      "evidence": {
+        "files": ["app.js"],
+        "commands": ["node --check app.js"]
+      },
+      "writes": ["app.js"]
+    },
+    {
+      "id": "t3",
+      "subject": "Style the app",
+      "description": "Write style.css with a clean responsive layout.",
+      "role": "builder",
+      "model": "deepseek-account-4/deepseek-v4-flash",
+      "blockedBy": ["t1"],
+      "reviewBy": "reviewer",
+      "evidence": {
+        "files": ["style.css"],
+        "commands": []
+      },
+      "writes": ["style.css"]
+    }
+  ]
+}

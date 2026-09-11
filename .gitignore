@@ -1,0 +1,27 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# runtime side-channel logs (observability) — never commit
+logs/*
+!logs/.gitkeep
+reports/
+
+# node
+node_modules/
+package-lock.json
+
+# opencode
+.opencode/cache/
+.cache/
+opencode.local.json
+
+# editors / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# install backups
+*.bak.*
