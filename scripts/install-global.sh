@@ -60,7 +60,7 @@ if [ -f "$GLOBAL_DIR/opencode.json" ] && [ -z "$DRY_RUN" ]; then
 fi
 run mkdir -p "$GLOBAL_DIR"
 run node "$ROOT/scripts/merge-config.js" "$ROOT/opencode.json" "$GLOBAL_DIR/opencode.json" \
-  --keys small_model,provider,mcp --rewrite-home
+  --keys small_model,provider,mcp,autoupdate,share --rewrite-home
 
 # --- 2. global artifacts ---
 copy_tree "$ROOT/.opencode/agents" "$GLOBAL_DIR/agents"
@@ -84,6 +84,16 @@ if [ -n "$PROJECT" ]; then
   echo "install-global: installing project template -> $PROJECT"
   run mkdir -p "$PROJECT"
   copy_tree "$ROOT/global/templates/multiagent-project" "$PROJECT"
+  copy_tree "$ROOT/deploy" "$PROJECT/deploy"
+  for file in Dockerfile .dockerignore render.yaml; do
+    if [ -f "$ROOT/$file" ]; then
+      if [ -n "$DRY_RUN" ]; then
+        echo "[dry-run] cp $ROOT/$file $PROJECT/$file"
+      else
+        cp "$ROOT/$file" "$PROJECT/$file"
+      fi
+    fi
+  done
   if [ ! -f "$PROJECT/.env" ] && [ -f "$ROOT/.env" ] && [ -z "$DRY_RUN" ]; then
     cp "$ROOT/.env" "$PROJECT/.env"
     echo "install-global: copied .env -> $PROJECT/.env"

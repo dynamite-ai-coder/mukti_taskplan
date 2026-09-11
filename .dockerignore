@@ -1,0 +1,13 @@
+.git
+.gitignore
+logs
+reports
+artifacts
+node_modules
+**/node_modules
+.env
+.env.*
+!.env.example
+!global/templates/multiagent-project/.env.example
+*.log
+docs

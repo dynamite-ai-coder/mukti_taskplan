@@ -1,0 +1,54 @@
+# ============================================================
+# Render Blueprint — mukti-taskplan as a web service (Docker)
+# Deploy: Render Dashboard -> New -> Blueprint -> select this repo
+# Then set the 5 DeepSeek keys (sync: false) in the dashboard.
+# ============================================================
+services:
+  - type: web
+    name: mukti-taskplan
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    numInstances: 1
+    autoDeploy: true
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: AACP_LOG_DIR
+        value: /data/logs
+      - key: REPORTS_DIR
+        value: /data/reports
+      - key: WORKSPACE_DIR
+        value: /data/workspace
+      - key: OPENCODE_GLOBAL_DIR
+        value: /root/.config/opencode
+      - key: BROWSER_NO_SANDBOX
+        value: "true"
+      - key: CHROMIUM_USER_FLAGS
+        value: --no-sandbox --disable-dev-shm-usage --disable-gpu
+      - key: A2A_REQUIRE_SIGNATURES
+        value: "true"
+      - key: MAX_CONCURRENT_JOBS
+        value: "1"
+      - key: JOB_TIMEOUT_MS
+        value: "600000"
+      - key: A2A_SECRET
+        generateValue: true
+      - key: SERVICE_API_KEY
+        generateValue: true
+      - key: DEEPSEEK_KEY_1
+        sync: false
+      - key: DEEPSEEK_KEY_2
+        sync: false
+      - key: DEEPSEEK_KEY_3
+        sync: false
+      - key: DEEPSEEK_KEY_4
+        sync: false
+      - key: DEEPSEEK_KEY_5
+        sync: false
+    disk:
+      name: mukti-data
+      mountPath: /data
+      sizeGB: 1
