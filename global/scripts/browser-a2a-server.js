@@ -239,6 +239,7 @@ function normalizeActions(params) {
 async function runJob(job, params) {
   const evidence = [];
   const snapshotFiles = [];
+  let snapshotIndex = 0;
   try {
     const browserStarted = Array.isArray(params.actions);
     if (!browserStarted) {
@@ -253,7 +254,8 @@ async function runJob(job, params) {
       evidence.push({ tool, action: action.action || tool, bytes: result.text.length });
       if (tool === "browser_snapshot" || action.action === "snapshot") {
         fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
-        const file = path.join(ARTIFACT_DIR, `snapshot-${job.id}.txt`);
+        snapshotIndex += 1;
+        const file = path.join(ARTIFACT_DIR, `snapshot-${job.id}-${snapshotIndex}.txt`);
         fs.writeFileSync(file, result.text, "utf8");
         snapshotFiles.push(file);
       }
