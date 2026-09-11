@@ -1,0 +1,503 @@
+================================================================
+OPENCODE MULTI-AGENT SYSTEM — ADVANCED BUILD PROMPT
+Version: 2.0
+Target: OpenCode CLI + DeepSeek V4 (5 accounts)
+        + AACP + A2A + ACCP + Browser MCP
+Purpose: Reusable multi-agent template with Task Planner,
+         compressed coordination protocols, and browser automation
+================================================================
+
+INSTRUCTIONS FOR OPENCODE:
+You are a senior systems architect. Build a reusable OpenCode-based
+multi-agent system with the exact requirements below. Work
+step-by-step. After each step, pause and confirm before proceeding
+to the next.
+
+================================================================
+GOAL
+================================================================
+Create a production-grade, portable multi-agent configuration that:
+
+1.  Uses OpenCode as the runtime environment
+2.  Supports 5 separate DeepSeek API keys (independent accounts)
+3.  Includes a dedicated "Task Planner" (architect) agent that
+    decomposes goals into a task DAG
+4.  Includes parallel "Builder" agents that execute independent
+    tasks concurrently
+5.  Includes a "Reviewer" agent that validates completed work
+6.  Includes a "Browser Agent" capable of navigating real websites
+    via accessibility snapshots
+7.  Uses AACP (Agent Action Compression Protocol) for ALL
+    inter-agent coordination messages to cut token cost
+8.  Uses A2A (Agent-to-Agent) protocol for remote / browser agent
+    communication and capability discovery
+9.  Uses ACCP (Agent Context Compression Protocol) for context
+    state handoff between agents
+10. Can be dropped into ANY new project directory and work
+    immediately
+11. Handles API key rotation and 429 rate-limit failover
+    automatically
+
+================================================================
+ARCHITECTURE OVERVIEW
+================================================================
+
+LAYER 1 — Runtime
+  OpenCode CLI as agent runtime and configuration layer
+
+LAYER 2 — Models
+  DeepSeek V4-Flash for high-concurrency parallel workers
+    (2500 concurrency limit per account)
+  DeepSeek V4-Pro for planner / architect / reviewer roles
+    (stronger reasoning)
+
+LAYER 3 — Coordination Protocol (NEW)
+  AACP  = compressed coordination packets (task routing,
+          resource refs, action verbs, metadata)
+  ACCP  = compressed context state between agent handoffs
+  A2A   = remote agent discovery + HTTP/JSON-RPC transport
+
+LAYER 4 — Tools
+  Browser MCP for web automation (opencode-browser-control)
+
+LAYER 5 — Resilience
+  5-account key pooling + 429 failover + cooldown tracking
+
+================================================================
+STEP 1 — VERIFY PREREQUISITES
+================================================================
+Check and report:
+- Node.js version >= 22.19.0
+- OpenCode CLI installed (run: opencode --version)
+- Git available
+- Chrome or Edge installed for Playwright/CDP
+- Ports 8788 (A2A registry) and 8789 (browser agent) free
+
+================================================================
+STEP 2 — CREATE GLOBAL OPENCODE CONFIG
+================================================================
+Create or update ~/.config/opencode/opencode.json with:
+
+1.  Multiple DeepSeek providers, one per API key account:
+    - deepseek-account-1 through deepseek-account-5
+    - Each uses https://api.deepseek.com/v1 as baseURL
+    - Each has its own apiKey from env vars:
+      DEEPSEEK_KEY_1 ... DEEPSEEK_KEY_5
+
+2.  Model definitions per provider:
+    - deepseek-v4-flash   (builders / browser)
+    - deepseek-v4-pro     (planner / reviewer / integrator)
+
+3.  MCP server configuration:
+    - browser-control (opencode-browser-control)
+    - a2a-registry    (local A2A discovery service)
+    - aacp-codec      (AACP encode/decode helper)
+
+================================================================
+STEP 3 — AACP PROTOCOL LAYER (NEW)
+================================================================
+AACP = Agent Action Compression Protocol.
+Purpose: Replace verbose natural-language coordination between
+agents with compact semantic packets.
+
+Create ~/.config/opencode/protocols/aacp.md with the spec:
+
+PACKET FORMAT (JSON, one line per message):
+{
+  "v": 1,
+  "op": "DISPATCH|RESULT|QUERY|ACK|FAIL",
+  "task": "t1",
+  "role": "builder|browser|reviewer",
+  "dom": "code|web|fs|test",
+  "ref": ["src/feature/**", "https://x.com"],
+  "ret": ["files", "stdout", "snapshot"],
+  "meta": { "pri": 1, "ttl": 60, "hash": "..." }
+}
+
+RULES:
+- NEVER send full task descriptions between agents
+- Task body lives in the DAG; agents exchange only task IDs
+- Reference resources by URI, not by inlined content
+- Use short verbs: DISPATCH, RESULT, QUERY, ACK, FAIL
+- Cache identical packets by hash -> zero re-tokenization
+- Coordination overhead should drop ~30% on multi-hop flows
+
+ENCODER:
+Create ~/.config/opencode/protocols/aacp-encoder.js exporting:
+  encode(taskId, op, payload) -> compact JSON string
+  decode(packetString)        -> structured object
+
+================================================================
+STEP 4 — ACCP PROTOCOL LAYER (NEW)
+================================================================
+ACCP = Agent Context Compression Protocol.
+Purpose: Compress context state during agent handoffs so the
+receiving agent doesn't re-read the whole transcript.
+
+Create ~/.config/opencode/protocols/accp.md with the spec:
+
+CONTEXT SNAPSHOT FORMAT:
+{
+  "v": 1,
+  "run_id": "...",
+  "cursor": "t5",
+  "facts": [
+    { "k": "files_created", "v": ["src/a.js"] },
+    { "k": "tests_passing", "v": true },
+    { "k": "blockers", "v": [] }
+  ],
+  "intent": "code_gen | refactor | test | research",
+  "delta": [ "only what changed since last snapshot" ]
+}
+
+RULES:
+- Each agent handoff passes an ACCP snapshot, not full history
+- "facts" holds durable state; "delta" holds last-step changes
+- Snapshots are content-addressed; identical snapshot = cache hit
+- Reviewer accepts snapshots, not transcripts
+
+================================================================
+STEP 5 — A2A PROTOCOL LAYER (NEW)
+================================================================
+A2A = Agent-to-Agent protocol (JSON-RPC 2.0 over HTTP/SSE).
+
+Create ~/.config/opencode/protocols/a2a.md with the spec:
+
+AGENT CARD (served at /.well-known/agent.json):
+{
+  "did": "did:local:browser-agent",
+  "name": "browser-agent",
+  "capabilities": [
+    "web_navigate", "form_fill", "data_extract", "screenshot"
+  ],
+  "endpoints": {
+    "rpc": "http://localhost:8789/rpc",
+    "stream": "http://localhost:8789/stream"
+  },
+  "limits": { "max_rps": 5, "timeout_ms": 60000 },
+  "trust": 0.95
+}
+
+RULES:
+- Every remote agent (browser, external tools) exposes a Card
+- Planner queries the A2A registry for capability discovery
+- Calls use JSON-RPC methods: task.dispatch, task.status,
+  task.cancel, task.result
+- Streaming via SSE for long browser tasks
+- Messages are signed with a local DID for non-repudiation
+
+================================================================
+STEP 6 — DEFINE AGENT ROLES
+================================================================
+Create agent files in ~/.config/opencode/agents/
+
+--- AGENT 1: planner (primary) ---
+File: planner.md
+Model: deepseek-account-1/deepseek-v4-pro
+Mode: primary
+Role: Decompose goals into task DAG; never execute tasks
+Protocols:
+  - Emits AACP packets to builders
+  - Queries A2A registry for capability match
+  - Receives ACCP snapshots from reviewers
+Permission: read all, no edit, no bash
+System prompt:
+"You are a senior engineering planner. Decompose goals into
+parallelizable task graphs. Emit AACP packets only — never
+inline task bodies. Query the A2A registry before assigning
+remote tasks. Output strict JSON matching task-dag schema."
+
+--- AGENT 2-4: builder-1 .. builder-3 (subagents) ---
+Files: builder-1.md, builder-2.md, builder-3.md
+Models:
+  builder-1 -> deepseek-account-2/deepseek-v4-flash
+  builder-2 -> deepseek-account-3/deepseek-v4-flash
+  builder-3 -> deepseek-account-4/deepseek-v4-flash
+Mode: subagent
+Role: Execute exactly one atomic task; report via AACP RESULT
+Protocols:
+  - Decodes AACP DISPATCH packets
+  - Emits AACP RESULT + ACCP snapshot on completion
+Permission: full file read/write, bash allow, browser deny
+System prompt:
+"You are a focused builder. Complete exactly one task.
+Parse incoming AACP DISPATCH. On finish, emit AACP RESULT with
+evidence URIs and an ACCP snapshot. Do not narrate."
+
+--- AGENT 5: browser (subagent, A2A server) ---
+File: browser.md
+Model: deepseek-account-5/deepseek-v4-flash
+Mode: subagent
+Role: Web navigation, form filling, data extraction
+Protocols:
+  - Registers Agent Card at localhost:8789
+  - Accepts A2A task.dispatch from planner
+  - Uses browser_snapshot to get numbered refs (e1, e2)
+Permission: browser allow, fs write limited, bash deny
+System prompt:
+"You are a browser operator. Use browser_snapshot to see the
+page. Use browser_click and browser_type by ref. Never guess
+CSS selectors. If a ref is stale, take a new snapshot. Reply
+to A2A calls only with AACP RESULT packets."
+
+--- AGENT 6: reviewer (subagent) ---
+File: reviewer.md
+Model: deepseek-account-1/deepseek-v4-pro
+Mode: subagent
+Role: Validate work against the DAG evidence rules
+Protocols:
+  - Consumes ACCP snapshots, not transcripts
+  - Emits AACP ACK or FAIL
+Permission: read all, bash limited to test/lint
+System prompt:
+"You are a strict reviewer. Accept an ACCP snapshot, check
+facts and delta against the task brief. Emit AACP ACK on pass,
+AACP FAIL with reasons on reject. Never request transcripts."
+
+--- AGENT 7: integrator (primary) ---
+File: integrator.md
+Model: deepseek-account-1/deepseek-v4-pro
+Mode: primary
+Role: Merge parallel outputs, resolve conflicts
+Protocols:
+  - Aggregates ACCP snapshots from all builders
+  - Emits final report
+Permission: full access
+System prompt:
+"You are the integrator. Collect ACCP snapshots. Resolve
+conflicts. Produce final artifact. Report what was merged,
+what conflicted, what was dropped."
+
+================================================================
+STEP 7 — TASK DAG SCHEMA
+================================================================
+Create ~/.config/opencode/context/task-dag.md
+
+{
+  "run_id": "string",
+  "objective": "string",
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "string",
+      "description": "string",
+      "role": "builder|browser|reviewer",
+      "model": "provider/model (optional override)",
+      "blockedBy": ["t0"],
+      "reviewBy": "reviewer",
+      "evidence": {
+        "files": ["path/to/output"],
+        "commands": ["command that must pass"]
+      },
+      "writes": ["src/feature/**"]
+    }
+  ]
+}
+
+Only task IDs travel between agents (via AACP).
+Only task bodies stay in the DAG file.
+
+================================================================
+STEP 8 — PROJECT TEMPLATE
+================================================================
+Create ~/.config/opencode/templates/multiagent-project/
+
+1. opencode.json
+   - Extends global config
+   - Pins providers for each subagent
+
+2. AGENTS.md
+   - Build / test / lint commands
+   - Code conventions
+   - How to dispatch a swarm:
+     opencode run "@planner <goal>"
+
+3. .env.example
+   DEEPSEEK_KEY_1=...
+   DEEPSEEK_KEY_2=...
+   DEEPSEEK_KEY_3=...
+   DEEPSEEK_KEY_4=...
+   DEEPSEEK_KEY_5=...
+
+4. scripts/dispatch-swarm.sh
+   - Reads task-dag.json
+   - Calls planner
+   - Streams AACP packet log to ./logs/aacp.log
+   - Streams ACCP snapshots to ./logs/accp.jsonl
+
+5. scripts/a2a-registry.js
+   - Lightweight JSON-RPC server on port 8788
+   - Serves /.well-known/agent.json for each remote agent
+
+================================================================
+STEP 9 — KEY ROTATION LOGIC
+================================================================
+Create ~/.config/opencode/scripts/key-rotator.js
+
+- Maintains pool of 5 keys (one per account)
+- Tracks in-flight requests per key
+- On HTTP 429: mark key cooling, pick next available
+- Exposes getNextKey() callable by agents as a custom tool
+- Emits metric: key_switches_total
+
+Alternative (simpler):
+Pin each builder to a different provider in its agent file.
+If builder-1 hits 429, builder-2 (account-2) is unaffected.
+
+================================================================
+STEP 10 — BROWSER INTEGRATION VIA A2A
+================================================================
+Configure browser MCP in global config:
+
+{
+  "mcp": {
+    "browser-control": {
+      "type": "local",
+      "command": ["npx", "-y", "opencode-browser-control"],
+      "enabled": true
+    }
+  }
+}
+
+Wrap the browser MCP in an A2A server:
+- Expose Agent Card at localhost:8789/.well-known/agent.json
+- RPC methods: task.dispatch, task.status, task.result
+- All replies use AACP RESULT packets
+
+Verify browser agent can:
+1. browser(action="navigate", url="https://example.com")
+2. browser_snapshot()  -> numbered refs (e1, e2, ...)
+3. browser_click(ref="e1")
+4. browser_type(ref="e2", text="hello")
+
+================================================================
+STEP 11 — TOKEN & LATENCY BUDGET
+================================================================
+Define target metrics in ~/.config/opencode/context/budget.md
+
+BASELINE (naive natural-language coordination):
+- Planner -> Builder handoff: ~800 tokens
+- Builder -> Reviewer handoff: ~1200 tokens
+- 4-hop flow total: ~4500 tokens
+
+TARGET (with AACP + ACCP):
+- Planner -> Builder handoff: <= 250 tokens
+- Builder -> Reviewer handoff: <= 400 tokens
+- 4-hop flow total: <= 1500 tokens
+- Expected savings: 30-45% on multi-hop flows
+
+Measure with:
+- ./logs/aacp.log size
+- ./logs/accp.jsonl snapshot count
+- Emit report per run to ./reports/budget-<run_id>.json
+
+================================================================
+STEP 12 — OBSERVABILITY
+================================================================
+Because AACP/A2A messages are NOT visible in the OpenCode TUI,
+build a side-channel observer:
+
+1. All AACP packets -> ./logs/aacp.log (JSON lines)
+2. All ACCP snapshots -> ./logs/accp.jsonl
+3. All A2A RPC calls -> ./logs/a2a.log
+4. Live tail dashboard:
+   tail -f logs/*.log | scripts/dashboard.js
+5. Per-run summary:
+   scripts/summary.js <run_id>
+
+================================================================
+STEP 13 — SECURITY & TRUST
+================================================================
+- Every remote agent gets a local DID
+- AACP packets include optional "sig" field
+- A2A calls require signed envelopes
+- Registry enforces capability whitelist
+- Planners cannot dispatch to agents outside the registry
+
+================================================================
+STEP 14 — TEST THE SYSTEM
+================================================================
+Smoke test:
+
+1. Create a test project directory
+2. Copy the template config
+3. Set 5 real or dummy env vars
+4. Run:
+   opencode run "@planner Build a simple todo app with
+   HTML/CSS/JS. Decompose into tasks."
+5. Verify planner produced valid task DAG JSON
+6. Verify planner emitted AACP DISPATCH packets in aacp.log
+7. Verify builder-1 created files
+8. Verify builder-1 emitted AACP RESULT + ACCP snapshot
+9. Verify reviewer emitted AACP ACK
+10. Run:
+    opencode run --agent browser "Open example.com and tell
+    me the heading"
+11. Verify browser responded via A2A with AACP RESULT
+12. Run scripts/summary.js and check token savings >= 30%
+
+================================================================
+STEP 15 — DOCUMENTATION
+================================================================
+Create ~/.config/opencode/README-multiagent.md covering:
+- Install in a new project
+- Set the 5 API keys
+- Dispatch a swarm
+- Add custom roles
+- Extend AACP with new verbs
+- Extend A2A with new capabilities
+- Interpret ACCP snapshots
+- Troubleshoot 429s
+- Read the dashboard
+
+================================================================
+OUTPUT FORMAT
+================================================================
+For each step, output:
+1. Exact command or file content to create/modify
+2. Brief explanation of why
+3. Verification command or check
+
+Do NOT skip steps. Do NOT combine steps.
+Wait for confirmation after each step.
+
+================================================================
+KEY TECHNICAL NOTES
+================================================================
+- DeepSeek's 2500 concurrency limit is per-ACCOUNT, not per-key.
+  Five independent accounts = theoretical 12,500 concurrency.
+
+- V4-Flash is ~5-6x cheaper than V4-Pro for output tokens.
+  Use Flash for parallel builders, Pro for planner/reviewer.
+
+- AACP replaces verbose coordination text with compact packets.
+  Real-world benchmarks show 7-34% token reduction on 4-hop
+  flows (higher savings on more complex coordination).
+
+- ACCP passes facts + delta instead of full transcripts,
+  keeping reviewer context bounded.
+
+- A2A registry enables capability-based routing. Planner picks
+  agents by capability match, not hard-coded IDs.
+
+- Browser agent needs accessibility refs, not CSS selectors.
+  Numbered refs (e1, e2) from ARIA snapshots fail loudly
+  when stale — no silent selector drift.
+
+- DeepSeek V4-Flash is text-only; DOM snapshots as text means
+  no vision tokens burned on screenshots.
+
+- A2A and AACP messages are NOT visible in the OpenCode TUI.
+  Side-channel logging is mandatory.
+
+- Key rotation caveat: OpenCode's native multi-provider config
+  does NOT auto-rotate on 429. Pin each builder to a different
+  provider, or use key-rotator.js as a custom tool.
+
+- Q-KVComm (KV cache compression) is out of scope for v2.0 —
+  DeepSeek public API does not expose KV cache exchange yet.
+  Revisit when provider support lands.
+
+================================================================
+END OF PROMPT v2.0
+================================================================
